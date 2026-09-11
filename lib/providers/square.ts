@@ -120,12 +120,14 @@ export async function getSquareAppDetails(appId: string): Promise<Partial<Hostin
   );
   const status = data.response;
   if (!status) return {};
+  const running = Boolean(status.running);
   return {
-    status: status.running ? "online" : "offline",
+    status: running ? "online" : "offline",
     cpu: status.cpu,
     ram: status.ram,
     storage: status.storage,
     network: status.network?.now || status.network?.total,
     uptime: status.uptime,
+    actions: running ? ["stop", "restart"] : ["start"],
   };
 }

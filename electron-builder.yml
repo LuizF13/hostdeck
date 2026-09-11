@@ -5,7 +5,7 @@ appId: com.hostdeck.desktop
 productName: HostDeck
 executableName: HostDeck
 directories:
-  output: dist
+  output: release/${version}
   buildResources: build
 artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 files:
@@ -31,17 +31,22 @@ extraResources:
     to: standalone/public
     filter:
       - "**/*"
-asar: true
+asar: false
 win:
+  appId: com.hostdeck.desktop
+  executableName: HostDeck
   icon: build/icon.ico
   artifactName: "HostDeck-Setup-${version}-${arch}.${ext}"
   target:
     - nsis
 nsis:
   oneClick: false
+  perMachine: false
+  allowElevation: true
   shortcutName: HostDeck
+  menuCategory: HostDeck
   uninstallDisplayName: HostDeck
-  allowToChangeInstallationDirectory: true
+  allowToChangeInstallationDirectory: false
   createDesktopShortcut: always
   createStartMenuShortcut: true
   runAfterFinish: true

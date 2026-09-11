@@ -1,7 +1,7 @@
 {
   "name": "hostdeck",
-  "version": "1.4.7",
-  "description": "HostDeck Infrastructure OS 1.4.7: ícone nativo corrigido na barra de tarefas, atalhos e runtime do Windows.",
+  "version": "1.5.2",
+  "description": "HostDeck Infrastructure OS 1.5.2: atualizações automáticas em segundo plano, bandeja do Windows e sincronização de status/ações das aplicações.",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
@@ -9,24 +9,27 @@
     "build": "npm run clean && next build && node scripts/prepare-desktop.mjs",
     "start": "next start",
     "lint": "eslint .",
-    "desktop:dev": "cross-env HOSTDECK_DEV=1 electron electron/main.cjs",
+    "desktop:dev": "cross-env HOSTDECK_DEV=1 electron .",
     "desktop:pack": "npm run build && electron-builder --config electron-builder.config.cjs --dir --publish never",
     "desktop:dist": "npm run build && electron-builder --config electron-builder.config.cjs --publish never",
     "desktop:publish": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --publish always",
     "release:patch": "npm version patch",
-    "release:minor": "npm version minor",
-    "release:major": "npm version major",
+    "release:minor": "node scripts/release-all.mjs minor",
+    "release:major": "node scripts/release-all.mjs major",
     "github:setup": "node scripts/configure-github-release.mjs",
     "github:release:patch": "node scripts/release-github.mjs patch",
     "github:release:minor": "node scripts/release-github.mjs minor",
     "github:release:major": "node scripts/release-github.mjs major",
-    "desktop:dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win --publish never",
+    "desktop:dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win --publish never && node scripts/finalize-windows-installer.mjs && node scripts/verify-windows-installer.mjs",
     "desktop:dist:linux": "npm run build && electron-builder --config electron-builder.config.cjs --linux --publish never",
     "desktop:dist:mac": "npm run build && electron-builder --config electron-builder.config.cjs --mac --publish never",
-    "desktop:publish:win": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --win --publish always",
+    "desktop:publish:win": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --win --publish always && node scripts/finalize-windows-installer.mjs && node scripts/verify-windows-installer.mjs",
     "desktop:publish:linux": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --linux --publish always",
     "desktop:publish:mac": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac --publish always",
-    "clean": "node scripts/clean-build.mjs"
+    "clean": "node scripts/clean-build.mjs",
+    "release": "node scripts/release-all.mjs patch",
+    "clean:all": "node scripts/clean-build.mjs --all",
+    "windows:install": "npm run desktop:dist:win && node scripts/install-latest-windows.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -44,5 +47,7 @@
     "electron": "^44.3.0",
     "electron-builder": "^26.16.1",
     "typescript": "^5.7.0"
-  }
+  },
+  "author": "HostDeck",
+  "productName": "HostDeck"
 }

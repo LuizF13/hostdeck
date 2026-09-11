@@ -55,6 +55,11 @@ type HostDeckConfigStatus = {
   geminiCooldownMinutes?: number;
   recoveryCooldownMinutes?: number;
   maxRecoveryAttemptsPerHour?: number;
+  automaticUpdatesEnabled?: boolean;
+  automaticUpdateDownload?: boolean;
+  updateCheckMinutes?: number;
+  backgroundModeEnabled?: boolean;
+  launchAtLogin?: boolean;
   credentialPath?: string;
 };
 
@@ -75,6 +80,11 @@ type HostDeckConfigInput = {
   geminiCooldownMinutes?: number;
   recoveryCooldownMinutes?: number;
   maxRecoveryAttemptsPerHour?: number;
+  automaticUpdatesEnabled?: boolean;
+  automaticUpdateDownload?: boolean;
+  updateCheckMinutes?: number;
+  backgroundModeEnabled?: boolean;
+  launchAtLogin?: boolean;
   removeSquare?: boolean;
   removeVercel?: boolean;
   removeGemini?: boolean;
@@ -98,6 +108,7 @@ declare global {
       toggleMaximizeWindow(): Promise<boolean>;
       closeWindow(): Promise<void>;
       isWindowMaximized(): Promise<boolean>;
+      repairWindowsShortcuts(): Promise<{ ok: boolean; executable?: string; appUserModelId?: string; results?: Array<{ shortcut: string; ok: boolean; error?: string }> }>;
       onWindowMaximized(callback: (value: boolean) => void): () => void;
       getMonitorState(): Promise<HostDeckMonitorState>;
       scanNow(): Promise<HostDeckMonitorState | void>;

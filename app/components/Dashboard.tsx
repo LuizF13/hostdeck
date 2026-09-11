@@ -227,11 +227,26 @@ function AppExpanded({ app, pending, onAction, onLogs, onToast }: { app: Hosting
   const [details, setDetails] = useState<Partial<HostingApp>>({});
   const [loading, setLoading] = useState(false);
   useEffect(() => {
-    let active = true; setDetails({}); setLoading(true);
-    fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/details`, { cache: "no-store" }).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || "Falha"); if (active) setDetails(j.details || {}); }).catch(() => undefined).finally(() => active && setLoading(false));
-    return () => { active = false; };
+    let active = true;
+    let timer: number | null = null;
+    const refresh = async (initial = false) => {
+      if (initial) { setDetails({}); setLoading(true); }
+      try {
+        const r = await fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/details`, { cache: "no-store" });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "Falha");
+        if (active) setDetails(j.details || {});
+      } catch {
+        // Mantém o último snapshot visível quando um refresh isolado falhar.
+      } finally {
+        if (active && initial) setLoading(false);
+      }
+    };
+    refresh(true);
+    timer = window.setInterval(() => refresh(false), 5000);
+    return () => { active = false; if (timer) window.clearInterval(timer); };
   }, [app.provider, app.id]);
-  const view: HostingApp = { ...app, ...details, actions: app.actions };
+  const view: HostingApp = { ...app, ...details, actions: details.actions ?? app.actions };
   async function copy(value?: string) { if (!value) return; try { await navigator.clipboard.writeText(value); onToast("Copiado para a área de transferência."); } catch { onToast("Não foi possível copiar."); } }
   return <section key={appKey(app)} className="app-expanded glass-card detail-enter">
     <div className="app-expanded-banner"><img src={BANNER_GIF} alt="" /><div className="expanded-banner-overlay" /><div className="expanded-head"><AppArtwork app={view} large /><div className="expanded-identity"><ProviderBadge provider={view.provider} /><h2>{view.name}</h2><p>{view.description || `Aplicação gerenciada pelo plugin ${providerName(view.provider)}.`}</p></div><StatusPill status={view.status} /></div></div>
@@ -377,6 +392,11 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
   const [maxRecoveryAttempts, setMaxRecoveryAttempts] = useState(2);
   const [discordUrl, setDiscordUrl] = useState("");
   const [discordEnabled, setDiscordEnabled] = useState(true);
+  const [automaticUpdates, setAutomaticUpdates] = useState(true);
+  const [automaticDownload, setAutomaticDownload] = useState(true);
+  const [updateCheckMinutes, setUpdateCheckMinutes] = useState(30);
+  const [backgroundMode, setBackgroundMode] = useState(true);
+  const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [desktop, setDesktop] = useState<Window["hostDeckDesktop"]>();
@@ -395,6 +415,11 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
     setRecoveryCooldown(config.recoveryCooldownMinutes || 15);
     setMaxRecoveryAttempts(config.maxRecoveryAttemptsPerHour || 2);
     setDiscordEnabled(config.discordNotificationsEnabled !== false);
+    setAutomaticUpdates(config.automaticUpdatesEnabled !== false);
+    setAutomaticDownload(config.automaticUpdateDownload !== false);
+    setUpdateCheckMinutes(config.updateCheckMinutes || 30);
+    setBackgroundMode(config.backgroundModeEnabled !== false);
+    setLaunchAtLogin(Boolean(config.launchAtLogin));
   }, [config]);
 
   async function saveIntelligence() {
@@ -450,6 +475,41 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
       setMessage("Mensagem de teste enviada para o Discord.");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Falha no teste");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveUpdates() {
+    if (!desktop) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const next = await desktop.saveConfig({
+        automaticUpdatesEnabled: automaticUpdates,
+        automaticUpdateDownload: automaticDownload,
+        updateCheckMinutes,
+        backgroundModeEnabled: backgroundMode,
+        launchAtLogin,
+      });
+      setConfig(next);
+      setMessage("Preferências de atualização salvas. O HostDeck já aplicou o novo comportamento.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Falha ao salvar atualização");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function repairWindowsShortcuts() {
+    if (!desktop?.repairWindowsShortcuts) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const result = await desktop.repairWindowsShortcuts();
+      setMessage(result.ok ? "Atalhos do HostDeck reparados. Abra o HostDeck pelo Menu Iniciar e fixe esse ícone na barra de tarefas." : "Os atalhos foram verificados, mas algum item não pôde ser recriado. Consulte o log do HostDeck.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Falha ao reparar atalhos do Windows.");
     } finally {
       setSaving(false);
     }
@@ -533,8 +593,17 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
           </>}
 
           {tab === "updates" && <>
-            <div className="settings-section-head"><div><div className="eyebrow">Desktop lifecycle</div><h2>Atualizações</h2><p>Atualizações seguem o fluxo GitHub Releases do HostDeck.</p></div></div>
-            <div className="update-panel"><span className="update-icon"><Download size={24} /></span><div><strong>HostDeck Desktop</strong><p>Verifique, baixe e instale a versão mais recente sem sair do app.</p></div><UpdateButton /></div><UpdateDetailsPanel />
+            <div className="settings-section-head"><div><div className="eyebrow">Desktop lifecycle</div><h2>Atualizações</h2><p>O HostDeck verifica novas versões sozinho enquanto estiver em execução e pode continuar em segundo plano quando a janela é fechada.</p></div></div>
+            <div className="settings-form update-settings-form">
+              <label className="toggle-setting"><div><RefreshCw size={18} /><span><strong>Verificar atualizações automaticamente</strong><small>Consulta o GitHub ao iniciar e depois no intervalo configurado. Se houver versão nova, você recebe uma notificação.</small></span></div><input type="checkbox" checked={automaticUpdates} onChange={(e) => setAutomaticUpdates(e.target.checked)} /></label>
+              <label className="toggle-setting"><div><Download size={18} /><span><strong>Baixar atualização automaticamente</strong><small>Quando uma versão nova for encontrada, baixa em segundo plano e instala ao sair ou quando você clicar em Instalar.</small></span></div><input type="checkbox" checked={automaticDownload} onChange={(e) => setAutomaticDownload(e.target.checked)} disabled={!automaticUpdates} /></label>
+              <label className="toggle-setting"><div><Activity size={18} /><span><strong>Continuar em segundo plano ao fechar</strong><small>O X esconde a janela na bandeja, mantendo monitoramento e atualizações ativos. Para encerrar completamente, use “Sair do HostDeck” no ícone da bandeja.</small></span></div><input type="checkbox" checked={backgroundMode} onChange={(e) => setBackgroundMode(e.target.checked)} /></label>
+              <label className="toggle-setting"><div><Monitor size={18} /><span><strong>Iniciar com o Windows</strong><small>Abre o HostDeck automaticamente no login. Com o modo em segundo plano, ele pode verificar atualizações sem você abrir a janela.</small></span></div><input type="checkbox" checked={launchAtLogin} onChange={(e) => setLaunchAtLogin(e.target.checked)} /></label>
+              <label className="settings-field compact"><span>Intervalo de verificação</span><select value={updateCheckMinutes} onChange={(e) => setUpdateCheckMinutes(Number(e.target.value))} disabled={!automaticUpdates}><option value={10}>10 minutos</option><option value={30}>30 minutos</option><option value={60}>1 hora</option><option value={180}>3 horas</option><option value={360}>6 horas</option></select><small>Evita consultas excessivas ao GitHub.</small></label>
+              <div className="update-background-note"><ShieldCheck size={18} /><div><strong>Aplicativo realmente encerrado</strong><p>Se o processo estiver totalmente fechado, ele não consegue verificar uma release nova. Para ter comportamento “fechado”, mantenha o modo em segundo plano ativado: a janela some, mas o agente continua na bandeja.</p></div></div>
+              <button className="btn primary settings-save" onClick={saveUpdates} disabled={!desktop || saving}>{saving ? <Loader2 className="spin" size={16} /> : <Check size={16} />}Salvar atualizações</button>
+            </div>
+            <div className="update-panel"><span className="update-icon"><Download size={24} /></span><div><strong>HostDeck Desktop</strong><p>Verifique, baixe e instale a versão mais recente sem sair do app.</p></div><UpdateButton /></div><div className="windows-integration-card"><div><strong>Integração com o Windows</strong><p>Recria os atalhos da Área de Trabalho e Menu Iniciar apontando para o HostDeck.exe instalado, com o AppUserModelID e o ícone corretos.</p></div><button className="btn glass" onClick={repairWindowsShortcuts} disabled={!desktop || saving}><RefreshCw size={15} />Reparar atalhos</button></div><UpdateDetailsPanel />
           </>}
         </div>
 
@@ -570,7 +639,7 @@ export default function Dashboard() {
   useEffect(() => { const media = window.matchMedia("(prefers-color-scheme: dark)"); const apply = () => { document.documentElement.dataset.theme = theme === "system" ? (media.matches ? "dark" : "light") : theme; localStorage.setItem("hostdeck-theme", theme); }; apply(); media.addEventListener("change", apply); return () => media.removeEventListener("change", apply); }, [theme]);
 
   const loadApps = useCallback(async (silent = false) => { if (!silent) setLoading(true); try { const r = await fetch("/api/apps", { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw new Error(j.error || "Falha ao atualizar"); setData(j); } catch (e) { setToast(e instanceof Error ? e.message : "Falha ao atualizar aplicações"); } finally { if (!silent) setLoading(false); } }, []);
-  useEffect(() => { loadApps(); const timer = window.setInterval(() => loadApps(true), 30000); return () => window.clearInterval(timer); }, [loadApps]);
+  useEffect(() => { loadApps(); const timer = window.setInterval(() => loadApps(true), 15000); return () => window.clearInterval(timer); }, [loadApps]);
 
   useEffect(() => {
     const api = window.hostDeckDesktop; if (!api) return;
@@ -586,8 +655,42 @@ export default function Dashboard() {
   function go(target: Page) { setPage(target); if (target === "ai") { setUnread(0); localStorage.setItem("hostdeck-ai-last-seen", new Date().toISOString()); } }
   function openSettings(tab: SettingsTab = "plugins") { setSettingsTab(tab); setPage("settings"); }
 
-  function expected(app: HostingApp | undefined, action: AppAction, elapsed: number) { if (!app) return false; if (action === "start") return app.status === "online"; if (action === "stop") return app.status === "offline"; if (action === "pause") return app.status === "paused"; if (action === "resume") return app.status !== "paused" && app.status !== "offline"; return action === "restart" && elapsed > 2500 && app.status === "online"; }
-  async function runAction(app: HostingApp, action: AppAction) { const key = appKey(app); if (pending[key]) return; const startedAt = Date.now(); setPending((s) => ({ ...s, [key]: { action, startedAt } })); try { await window.hostDeckDesktop?.recordManualAction({ provider: app.provider, id: app.id, action }).catch(() => undefined); const response = await fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Falha ao executar ação"); let confirmed = false; for (let i = 0; i < 16; i += 1) { await sleep(i ? 1800 : 1200); const r = await fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/details`, { cache: "no-store" }); if (!r.ok) continue; const j = await r.json(); if (expected({ ...app, ...(j.details || {}) }, action, Date.now() - startedAt)) { confirmed = true; break; } } await loadApps(true); setToast(confirmed ? `${app.name}: ${ACTION_LABEL[action].toLowerCase()} concluído.` : `${app.name}: comando enviado; aguardando confirmação do provedor.`); } catch (e) { setToast(e instanceof Error ? e.message : "Falha ao executar ação"); } finally { setPending((s) => { const n = { ...s }; delete n[key]; return n; }); window.setTimeout(() => setToast(""), 5000); } }
+  function expected(app: HostingApp | undefined, action: AppAction, elapsed: number) { if (!app) return false; if (action === "start") return app.status === "online"; if (action === "stop") return app.status === "offline"; if (action === "pause") return app.status === "paused"; if (action === "resume") return app.status === "online" || app.status === "building"; return action === "restart" && elapsed > 2500 && app.status === "online"; }
+  async function runAction(app: HostingApp, action: AppAction) {
+    const key = appKey(app);
+    if (pending[key]) return;
+    const startedAt = Date.now();
+    setPending((current) => ({ ...current, [key]: { action, startedAt } }));
+    try {
+      await window.hostDeckDesktop?.recordManualAction({ provider: app.provider, id: app.id, action }).catch(() => undefined);
+      const response = await fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Falha ao executar ação");
+
+      let confirmed = false;
+      let lastDetails: Partial<HostingApp> | null = null;
+      for (let i = 0; i < 18; i += 1) {
+        await sleep(i ? 1500 : 800);
+        const r = await fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/details`, { cache: "no-store" });
+        if (!r.ok) continue;
+        const j = await r.json();
+        lastDetails = j.details || {};
+        setData((current) => ({ ...current, apps: current.apps.map((item) => appKey(item) === key ? { ...item, ...lastDetails, actions: lastDetails?.actions ?? item.actions } : item), fetchedAt: Date.now() }));
+        if (expected({ ...app, ...lastDetails, actions: lastDetails?.actions ?? app.actions }, action, Date.now() - startedAt)) { confirmed = true; break; }
+      }
+
+      await loadApps(true);
+      if (lastDetails) {
+        setData((current) => ({ ...current, apps: current.apps.map((item) => appKey(item) === key ? { ...item, ...lastDetails, actions: lastDetails?.actions ?? item.actions } : item), fetchedAt: Date.now() }));
+      }
+      setToast(confirmed ? `${app.name}: estado confirmado como ${lastDetails?.status ? statusLabel(lastDetails.status) : ACTION_LABEL[action]}.` : `${app.name}: comando aceito, mas o provedor ainda não confirmou o estado final.`);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Falha ao executar ação");
+    } finally {
+      setPending((current) => { const next = { ...current }; delete next[key]; return next; });
+      window.setTimeout(() => setToast(""), 5000);
+    }
+  }
 
   const providerCounts = useMemo(() => new Map(HOSTING_PLUGINS.map((plugin) => [plugin.id, data.apps.filter((app) => app.provider === plugin.id).length])), [data.apps]);
   const connected = data.providers.filter((p) => p.configured);

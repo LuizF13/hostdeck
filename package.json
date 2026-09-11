@@ -1,7 +1,7 @@
 {
   "name": "hostdeck",
-  "version": "1.4.8",
-  "description": "HostDeck Infrastructure OS 1.4.8: instalador Windows inequívoco, atalhos persistentes, Electron dev corrigido e release GitHub em um comando.",
+  "version": "1.5.2",
+  "description": "HostDeck Infrastructure OS 1.5.2: atualizações automáticas em segundo plano, bandeja do Windows e sincronização de status/ações das aplicações.",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
@@ -20,14 +20,16 @@
     "github:release:patch": "node scripts/release-github.mjs patch",
     "github:release:minor": "node scripts/release-github.mjs minor",
     "github:release:major": "node scripts/release-github.mjs major",
-    "desktop:dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win --publish never && node scripts/verify-windows-installer.mjs",
+    "desktop:dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win --publish never && node scripts/finalize-windows-installer.mjs && node scripts/verify-windows-installer.mjs",
     "desktop:dist:linux": "npm run build && electron-builder --config electron-builder.config.cjs --linux --publish never",
     "desktop:dist:mac": "npm run build && electron-builder --config electron-builder.config.cjs --mac --publish never",
-    "desktop:publish:win": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --win --publish always && node scripts/verify-windows-installer.mjs",
+    "desktop:publish:win": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --win --publish always && node scripts/finalize-windows-installer.mjs && node scripts/verify-windows-installer.mjs",
     "desktop:publish:linux": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --linux --publish always",
     "desktop:publish:mac": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac --publish always",
     "clean": "node scripts/clean-build.mjs",
-    "release": "node scripts/release-all.mjs patch"
+    "release": "node scripts/release-all.mjs patch",
+    "clean:all": "node scripts/clean-build.mjs --all",
+    "windows:install": "npm run desktop:dist:win && node scripts/install-latest-windows.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -45,5 +47,7 @@
     "electron": "^44.3.0",
     "electron-builder": "^26.16.1",
     "typescript": "^5.7.0"
-  }
+  },
+  "author": "HostDeck",
+  "productName": "HostDeck"
 }

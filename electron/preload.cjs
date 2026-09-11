@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("hostDeckDesktop", {
   toggleMaximizeWindow: () => ipcRenderer.invoke("window:toggle-maximize"),
   closeWindow: () => ipcRenderer.invoke("window:close"),
   isWindowMaximized: () => ipcRenderer.invoke("window:is-maximized"),
+  repairWindowsShortcuts: () => ipcRenderer.invoke("windows:repair-shortcuts"),
   onWindowMaximized: (callback) => {
     const listener = (_event, value) => callback(Boolean(value));
     ipcRenderer.on("window:maximized", listener);

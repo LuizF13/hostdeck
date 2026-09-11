@@ -153,13 +153,31 @@ export async function getVercelAppDetails(projectId: string): Promise<Partial<Ho
     paused?: boolean;
     live?: boolean;
     updatedAt?: number;
+    targets?: { production?: { readyState?: string; id?: string; url?: string; alias?: string[] } };
   }>(`${BASE}/v9/projects/${encodeURIComponent(projectId)}?${params}`, {
     headers: authHeaders(),
   });
 
+  const production = project.targets?.production;
+  const readyState = production?.readyState;
+  const status: HostingApp["status"] = project.paused
+    ? "paused"
+    : readyState === "READY"
+      ? "online"
+      : readyState === "BUILDING" || readyState === "QUEUED" || readyState === "INITIALIZING"
+        ? "building"
+        : project.live === false
+          ? "offline"
+          : readyState
+            ? "unknown"
+            : "online";
+
   return {
-    status: project.paused ? "paused" : "online",
+    status,
+    url: ensureHttpUrl(production?.alias?.[0] || production?.url),
     updatedAt: project.updatedAt,
+    latestDeploymentId: production?.id,
+    latestDeploymentState: readyState,
     actions: project.paused ? ["resume"] : ["pause"],
   };
 }

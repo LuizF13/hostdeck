@@ -246,3 +246,26 @@ npm run release -- "resumo da atualizacao"
 ```
 
 O comando valida o build, faz commit das alteracoes, incrementa a versao patch, cria a tag e envia tudo. O GitHub Actions gera e publica o instalador oficial.
+
+## Build 1.4.9: proteção contra EBUSY no Windows
+O comando `npm run build` não apaga mais `dist`/`release`, evitando falha quando o Explorer, antivírus ou um executável antigo mantém a pasta aberta. O instalador Windows agora é gerado em uma pasta versionada: `release/<versão>/HostDeck-Setup-<versão>-x64.exe`.
+
+Para limpeza completa opcional use `npm run clean:all`; pastas de artefatos bloqueadas geram apenas aviso e não impedem o build do Next.js.
+
+## Windows instalado (v1.5.1)
+
+Para evitar abrir o Default App do Electron, o build Windows usa `asar: false` e valida explicitamente `win-unpacked/resources/app/package.json` e `win-unpacked/resources/app/electron/main.cjs`. Se esses arquivos não existirem, o build falha antes de você instalar.
+
+Comando recomendado:
+
+```powershell
+npm run windows:install
+```
+
+Ele gera a versão atual e abre sempre:
+
+```text
+release\HostDeck-Setup-LATEST.exe
+```
+
+Após instalado, abra pelo Menu Iniciar em **HostDeck > HostDeck**. O app recria os atalhos nativos e remove atalhos antigos de desenvolvimento que apontavam para `node_modules\electron\dist\electron.exe`.

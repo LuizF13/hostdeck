@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Notification, nativeTheme, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Notification, nativeTheme, dialog, Tray, Menu } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -6,9 +6,21 @@ const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 
+const PROD_APP_ID = "com.hostdeck.desktop";
+const DEV_APP_ID = "com.hostdeck.desktop.dev";
+const APP_NAME = "HostDeck";
+const APP_ID = app.isPackaged ? PROD_APP_ID : DEV_APP_ID;
+
+try { app.setName(APP_NAME); } catch {}
+try { process.title = APP_NAME; } catch {}
+if (process.platform === "win32") {
+  try { app.setAppUserModelId(APP_ID); } catch {}
+}
+
 const DEV_URL = process.env.HOSTDECK_DEV_SERVER_URL;
 const FORCE_DEV_SERVER = process.env.HOSTDECK_DEV === "1";
 const PREFERRED_PORT = Number(process.env.HOSTDECK_PORT || 3210);
+const START_HIDDEN = process.argv.includes("--background");
 let runtimePort = PREFERRED_PORT;
 let logStream = null;
 const DEFAULT_MONITOR_SECONDS = 120;
@@ -16,6 +28,7 @@ const DEFAULT_NOTIFICATION_COOLDOWN_MINUTES = 15;
 const DEFAULT_GEMINI_COOLDOWN_MINUTES = 10;
 const DEFAULT_RECOVERY_COOLDOWN_MINUTES = 15;
 const DEFAULT_MAX_RECOVERY_ATTEMPTS_PER_HOUR = 2;
+const DEFAULT_UPDATE_CHECK_MINUTES = 30;
 const PLUGIN_ENV_FIELDS = {
   square: { apiKey: "SQUARECLOUD_API_KEY" },
   vercel: { token: "VERCEL_TOKEN", teamId: "VERCEL_TEAM_ID" },
@@ -43,7 +56,21 @@ let monitorBusy = false;
 let previousSnapshot = null;
 let lastMonitorCheckedAt = null;
 let lastGeminiAnalyzeAt = 0;
+let updateCheckTimer = null;
+let tray = null;
+let isQuitting = false;
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 
 function logFilePath() {
   return path.join(app.getPath("userData"), "logs", "main.log");
@@ -134,6 +161,104 @@ function notificationIconPath() {
   return fs.existsSync(png) ? png : appIconPath();
 }
 
+function windowsRelaunchCommand() {
+  if (process.platform !== "win32") return process.execPath;
+  if (app.isPackaged) return `"${process.execPath}"`;
+  return `"${process.execPath}" "${app.getAppPath()}"`;
+}
+
+function removeStaleElectronShortcuts() {
+  if (process.platform !== "win32") return [];
+  const appData = process.env.APPDATA || app.getPath("appData");
+  const locations = [
+    app.getPath("desktop"),
+    path.join(appData, "Microsoft", "Windows", "Start Menu", "Programs"),
+    path.join(appData, "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar"),
+  ];
+  const removed = [];
+  const inspect = (dir, depth = 0) => {
+    if (depth > 2 || !fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        inspect(full, depth + 1);
+        continue;
+      }
+      if (!entry.name.toLowerCase().endsWith(".lnk")) continue;
+      try {
+        const details = shell.readShortcutLink(full);
+        const target = String(details.target || "").toLowerCase();
+        const isDevElectron = target.endsWith("\\electron.exe") && target.includes("\\node_modules\\electron\\");
+        if (isDevElectron) {
+          fs.rmSync(full, { force: true });
+          removed.push(full);
+        }
+      } catch {}
+    }
+  };
+  for (const dir of locations) inspect(dir);
+  if (removed.length) logMessage("INFO", "Atalhos antigos do Electron removidos", removed);
+  return removed;
+}
+
+function repairWindowsShortcuts() {
+  if (process.platform !== "win32" || !app.isPackaged) return { ok: false, reason: "not-packaged-windows" };
+
+  const executable = process.execPath;
+  const details = {
+    target: executable,
+    cwd: path.dirname(executable),
+    args: "",
+    description: "HostDeck Infrastructure Control Center",
+    icon: executable,
+    iconIndex: 0,
+    appUserModelId: PROD_APP_ID,
+  };
+
+  const startMenuRoot = path.join(
+    process.env.APPDATA || app.getPath("appData"),
+    "Microsoft",
+    "Windows",
+    "Start Menu",
+    "Programs",
+  );
+  const desktopRoot = app.getPath("desktop");
+  const shortcuts = [
+    path.join(startMenuRoot, "HostDeck", "HostDeck.lnk"),
+    path.join(desktopRoot, "HostDeck.lnk"),
+  ];
+
+  const removed = removeStaleElectronShortcuts();
+  const results = [];
+  for (const shortcut of shortcuts) {
+    try {
+      fs.mkdirSync(path.dirname(shortcut), { recursive: true });
+      const ok = shell.writeShortcutLink(shortcut, "create", details);
+      results.push({ shortcut, ok });
+    } catch (error) {
+      results.push({ shortcut, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  logMessage("INFO", "Atalhos Windows verificados", { executable, appUserModelId: PROD_APP_ID, removed, results });
+  return { ok: results.every((item) => item.ok), executable, appUserModelId: PROD_APP_ID, removed, results };
+}
+
+function applyWindowsWindowIdentity(win) {
+  if (process.platform !== "win32" || !win || win.isDestroyed()) return;
+  try {
+    win.setAppDetails({
+      appId: APP_ID,
+      appIconPath: app.isPackaged ? process.execPath : appIconPath(),
+      appIconIndex: 0,
+      relaunchCommand: windowsRelaunchCommand(),
+      relaunchDisplayName: app.isPackaged ? APP_NAME : `${APP_NAME} Dev`,
+    });
+  } catch (error) {
+    logMessage("ERROR", "Falha ao aplicar identidade nativa da janela", error);
+  }
+  try { win.setThumbnailToolTip(APP_NAME); } catch {}
+}
+
 function parseEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
   const result = {};
@@ -209,13 +334,18 @@ function getPreferences() {
     recoveryCooldownMinutes: clampNumber(saved.recoveryCooldownMinutes, 5, 180, DEFAULT_RECOVERY_COOLDOWN_MINUTES),
     maxRecoveryAttemptsPerHour: clampNumber(saved.maxRecoveryAttemptsPerHour, 1, 5, DEFAULT_MAX_RECOVERY_ATTEMPTS_PER_HOUR),
     discordNotificationsEnabled: saved.discordNotificationsEnabled !== false,
+    automaticUpdatesEnabled: saved.automaticUpdatesEnabled !== false,
+    automaticUpdateDownload: saved.automaticUpdateDownload !== false,
+    updateCheckMinutes: clampNumber(saved.updateCheckMinutes, 10, 360, DEFAULT_UPDATE_CHECK_MINUTES),
+    backgroundModeEnabled: saved.backgroundModeEnabled !== false,
+    launchAtLogin: saved.launchAtLogin === true,
   };
 }
 
 function savePreferences(patch = {}) {
   const current = getPreferences();
   const next = { ...current };
-  for (const key of ["aiMonitoringEnabled", "smartAnalysisEnabled", "autoRecoveryEnabled", "notifyInfoChanges", "discordNotificationsEnabled"]) {
+  for (const key of ["aiMonitoringEnabled", "smartAnalysisEnabled", "autoRecoveryEnabled", "notifyInfoChanges", "discordNotificationsEnabled", "automaticUpdatesEnabled", "automaticUpdateDownload", "backgroundModeEnabled", "launchAtLogin"]) {
     if (typeof patch[key] === "boolean") next[key] = patch[key];
   }
   if (patch.monitorIntervalSeconds != null) next.monitorIntervalSeconds = clampNumber(patch.monitorIntervalSeconds, 60, 3600, DEFAULT_MONITOR_SECONDS);
@@ -223,6 +353,7 @@ function savePreferences(patch = {}) {
   if (patch.geminiCooldownMinutes != null) next.geminiCooldownMinutes = clampNumber(patch.geminiCooldownMinutes, 2, 120, DEFAULT_GEMINI_COOLDOWN_MINUTES);
   if (patch.recoveryCooldownMinutes != null) next.recoveryCooldownMinutes = clampNumber(patch.recoveryCooldownMinutes, 5, 180, DEFAULT_RECOVERY_COOLDOWN_MINUTES);
   if (patch.maxRecoveryAttemptsPerHour != null) next.maxRecoveryAttemptsPerHour = clampNumber(patch.maxRecoveryAttemptsPerHour, 1, 5, DEFAULT_MAX_RECOVERY_ATTEMPTS_PER_HOUR);
+  if (patch.updateCheckMinutes != null) next.updateCheckMinutes = clampNumber(patch.updateCheckMinutes, 10, 360, DEFAULT_UPDATE_CHECK_MINUTES);
   writeJson(preferencesFile(), next);
   return next;
 }
@@ -257,6 +388,11 @@ function configStatus() {
     geminiCooldownMinutes: prefs.geminiCooldownMinutes,
     recoveryCooldownMinutes: prefs.recoveryCooldownMinutes,
     maxRecoveryAttemptsPerHour: prefs.maxRecoveryAttemptsPerHour,
+    automaticUpdatesEnabled: prefs.automaticUpdatesEnabled,
+    automaticUpdateDownload: prefs.automaticUpdateDownload,
+    updateCheckMinutes: prefs.updateCheckMinutes,
+    backgroundModeEnabled: prefs.backgroundModeEnabled,
+    launchAtLogin: prefs.launchAtLogin,
     credentialPath: credentialFile(),
   };
 }
@@ -331,6 +467,11 @@ function saveCredentials(input = {}) {
     recoveryCooldownMinutes: input.recoveryCooldownMinutes,
     maxRecoveryAttemptsPerHour: input.maxRecoveryAttemptsPerHour,
     discordNotificationsEnabled: input.discordNotificationsEnabled,
+    automaticUpdatesEnabled: input.automaticUpdatesEnabled,
+    automaticUpdateDownload: input.automaticUpdateDownload,
+    updateCheckMinutes: input.updateCheckMinutes,
+    backgroundModeEnabled: input.backgroundModeEnabled,
+    launchAtLogin: input.launchAtLogin,
   });
   writeCredentialEnv(current);
   return configStatus();
@@ -476,6 +617,60 @@ function sendUpdateState(patch) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("updates:status", updateState);
 }
 
+function friendlyUpdaterError(error) {
+  const raw = error?.message || String(error || "Falha ao verificar atualização.");
+  if (/404|releases\.atom|github\.com/i.test(raw)) {
+    return "O GitHub respondeu 404 ao consultar as releases. Confirme se o repositório configurado existe, se o nome owner/repo está correto e se o repositório de releases é público. Repositórios privados exigem autenticação e não devem ter token embutido no aplicativo dos usuários.";
+  }
+  if (/401|403|authentication|token/i.test(raw)) {
+    return "O GitHub recusou a consulta de atualização. Verifique as permissões/publicidade do repositório de releases. Não coloque um token pessoal dentro do aplicativo distribuído.";
+  }
+  return raw;
+}
+
+function showDesktopNotification(title, body, onClick) {
+  if (!Notification.isSupported()) return;
+  try {
+    const notification = new Notification({
+      title,
+      body: String(body || "").slice(0, 600),
+      icon: notificationIconPath(),
+      silent: false,
+    });
+    if (onClick) notification.on("click", onClick);
+    notification.show();
+  } catch {}
+}
+
+function revealMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+async function checkForUpdatesAutomatic() {
+  const prefs = getPreferences();
+  if (!app.isPackaged || !updaterConfigured() || !prefs.automaticUpdatesEnabled) return;
+  if (["checking", "downloading", "downloaded"].includes(updateState.state)) return;
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    sendUpdateState({ state: "error", message: friendlyUpdaterError(error) });
+  }
+}
+
+function startUpdateLoop() {
+  if (updateCheckTimer) clearInterval(updateCheckTimer);
+  updateCheckTimer = null;
+  const prefs = getPreferences();
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  if (!app.isPackaged || !updaterConfigured() || !prefs.automaticUpdatesEnabled) return;
+  setTimeout(() => checkForUpdatesAutomatic().catch(() => {}), 8000);
+  updateCheckTimer = setInterval(() => checkForUpdatesAutomatic().catch(() => {}), prefs.updateCheckMinutes * 60 * 1000);
+}
+
 function configureUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -488,6 +683,14 @@ function configureUpdater() {
         : [];
     playAttentionSound(2);
     sendUpdateState({ state: "available", availableVersion: info.version, percent: 0, message: `Versão ${info.version} disponível.`, releaseNotes });
+    showDesktopNotification(
+      `HostDeck ${info.version} disponível`,
+      getPreferences().automaticUpdateDownload ? "A atualização será baixada automaticamente em segundo plano." : "Abra o HostDeck para baixar a nova versão.",
+      revealMainWindow,
+    );
+    if (getPreferences().automaticUpdateDownload) {
+      setTimeout(() => autoUpdater.downloadUpdate().catch((error) => sendUpdateState({ state: "error", message: friendlyUpdaterError(error) })), 500);
+    }
   });
   autoUpdater.on("update-not-available", () => sendUpdateState({ state: "up-to-date", availableVersion: undefined, percent: undefined, message: "Você já está usando a versão mais recente." }));
   autoUpdater.on("download-progress", (progress) => sendUpdateState({ state: "downloading", percent: progress.percent, message: `Baixando atualização: ${Math.round(progress.percent)}%` }));
@@ -498,9 +701,10 @@ function configureUpdater() {
         ? [String(info.releaseNotes)]
         : updateState.releaseNotes || [];
     playAttentionSound(3);
-    sendUpdateState({ state: "downloaded", availableVersion: info.version, percent: 100, message: "Atualização baixada. Clique para instalar e reiniciar.", releaseNotes });
+    sendUpdateState({ state: "downloaded", availableVersion: info.version, percent: 100, message: "Atualização baixada. Ela será instalada quando o HostDeck sair ou você pode instalar agora.", releaseNotes });
+    showDesktopNotification(`HostDeck ${info.version} pronto para instalar`, "A atualização foi baixada. Clique para abrir o HostDeck e instalar agora, ou ela será aplicada ao encerrar o aplicativo.", revealMainWindow);
   });
-  autoUpdater.on("error", (error) => sendUpdateState({ state: "error", message: error?.message || "Falha ao verificar atualização." }));
+  autoUpdater.on("error", (error) => sendUpdateState({ state: "error", message: friendlyUpdaterError(error) }));
 
   if (app.isPackaged && !updaterConfigured()) {
     sendUpdateState({
@@ -508,7 +712,41 @@ function configureUpdater() {
       message: "Este instalador foi gerado como build local e não possui canal GitHub embutido. Publique uma release pelo GitHub Actions para habilitar atualizações automáticas.",
     });
   } else if (app.isPackaged) {
-    sendUpdateState({ state: "idle", message: "Pronto para verificar atualizações no GitHub." });
+    sendUpdateState({ state: "idle", message: "Atualizações automáticas prontas. O HostDeck verifica ao iniciar e periodicamente enquanto estiver em execução." });
+  }
+}
+
+function applyLoginItemSetting() {
+  if (process.platform !== "win32" || !app.isPackaged) return;
+  const prefs = getPreferences();
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(prefs.launchAtLogin),
+      path: process.execPath,
+      args: prefs.backgroundModeEnabled ? ["--background"] : [],
+    });
+  } catch (error) {
+    logMessage("ERROR", "Falha ao configurar inicialização com o Windows", error);
+  }
+}
+
+function createTray() {
+  if (!app.isPackaged || tray) return;
+  try {
+    tray = new Tray(appIconPath());
+    tray.setToolTip("HostDeck — monitoramento e atualizações em segundo plano");
+    tray.on("double-click", revealMainWindow);
+    const rebuild = () => {
+      tray?.setContextMenu(Menu.buildFromTemplate([
+        { label: "Abrir HostDeck", click: revealMainWindow },
+        { label: "Verificar atualizações", click: () => checkForUpdatesAutomatic().catch(() => {}) },
+        { type: "separator" },
+        { label: "Sair do HostDeck", click: () => { isQuitting = true; app.quit(); } },
+      ]));
+    };
+    rebuild();
+  } catch (error) {
+    logMessage("ERROR", "Falha ao criar ícone da bandeja", error);
   }
 }
 
@@ -1075,7 +1313,7 @@ function registerIpc() {
     try {
       await autoUpdater.checkForUpdates();
     } catch (error) {
-      sendUpdateState({ state: "error", message: error?.message || "Falha ao verificar atualização." });
+      sendUpdateState({ state: "error", message: friendlyUpdaterError(error) });
     }
   });
   ipcMain.handle("updates:download", async () => {
@@ -1083,7 +1321,7 @@ function registerIpc() {
     try {
       await autoUpdater.downloadUpdate();
     } catch (error) {
-      sendUpdateState({ state: "error", message: error?.message || "Falha ao baixar atualização." });
+      sendUpdateState({ state: "error", message: friendlyUpdaterError(error) });
     }
   });
   ipcMain.handle("updates:install", () => {
@@ -1094,6 +1332,8 @@ function registerIpc() {
   ipcMain.handle("config:get-status", () => configStatus());
   ipcMain.handle("config:save", async (_event, input) => {
     const status = saveCredentials(input || {});
+    applyLoginItemSetting();
+    startUpdateLoop();
     await restartManagedServer();
     startMonitorLoop(true);
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1137,6 +1377,7 @@ function registerIpc() {
   });
   ipcMain.handle("window:close", () => mainWindow?.close());
   ipcMain.handle("window:is-maximized", () => Boolean(mainWindow?.isMaximized()));
+  ipcMain.handle("windows:repair-shortcuts", () => repairWindowsShortcuts());
 
   ipcMain.handle("monitor:get-state", () => monitorState());
   ipcMain.handle("monitor:scan-now", () => performMonitorScan(true));
@@ -1148,6 +1389,7 @@ function registerIpc() {
 }
 
 function showSplash() {
+  if (START_HIDDEN) return;
   splashWindow = new BrowserWindow({
     width: 430,
     height: 280,
@@ -1186,6 +1428,7 @@ async function createWindow() {
     frame: false,
     autoHideMenuBar: true,
     show: false,
+    ...(process.platform === "win32" && !app.isPackaged ? { skipTaskbar: true } : {}),
     ...(process.platform === "win32" ? { backgroundMaterial: "acrylic" } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -1194,6 +1437,9 @@ async function createWindow() {
       sandbox: true,
     },
   });
+
+  applyWindowsWindowIdentity(mainWindow);
+  mainWindow.setTitle(APP_NAME);
 
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
     logMessage("ERROR", "Falha ao carregar interface", { errorCode, errorDescription, validatedURL });
@@ -1216,9 +1462,16 @@ async function createWindow() {
   });
   mainWindow.on("maximize", () => mainWindow?.webContents.send("window:maximized", true));
   mainWindow.on("unmaximize", () => mainWindow?.webContents.send("window:maximized", false));
+  mainWindow.on("close", (event) => {
+    if (!isQuitting && app.isPackaged && getPreferences().backgroundModeEnabled) {
+      event.preventDefault();
+      mainWindow?.hide();
+      showDesktopNotification("HostDeck continua em segundo plano", "Monitoramento e atualizações continuam ativos. Use o ícone da bandeja para abrir ou sair completamente.", revealMainWindow);
+    }
+  });
 
   mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
+    if (!START_HIDDEN) mainWindow?.show();
     splashWindow?.close();
     splashWindow = null;
   });
@@ -1227,12 +1480,14 @@ async function createWindow() {
   logMessage("INFO", "Interface carregada");
   // ready-to-show can fire before listener in very fast dev loads; fallback.
   setTimeout(() => {
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+    if (!START_HIDDEN && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     splashWindow = null;
   }, 2200);
 
+  createTray();
   startMonitorLoop(true);
+  startUpdateLoop();
 }
 
 process.on("uncaughtException", (error) => {
@@ -1244,12 +1499,13 @@ process.on("unhandledRejection", (reason) => {
 
 app.whenReady().then(async () => {
   ensureLogStream();
-  logMessage("INFO", "HostDeck iniciando", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, execPath: process.execPath });
-  app.setName("HostDeck");
+  logMessage("INFO", "HostDeck iniciando", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, execPath: process.execPath, appId: APP_ID, appName: app.getName() });
   if (process.platform === "win32") {
-    app.setAppUserModelId("com.hostdeck.desktop");
+    try { app.setAppUserModelId(APP_ID); } catch {}
+    if (app.isPackaged) repairWindowsShortcuts();
   }
   configureUpdater();
+  applyLoginItemSetting();
   registerIpc();
   try {
     await createWindow();
@@ -1260,7 +1516,11 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow().catch((error) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      revealMainWindow();
+      return;
+    }
+    createWindow().catch((error) => {
       showStartupError(error);
       app.quit();
     });
@@ -1268,12 +1528,14 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin" && (!app.isPackaged || !getPreferences().backgroundModeEnabled)) app.quit();
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   try { logMessage("INFO", "HostDeck encerrando"); } catch {}
   if (monitorTimer) clearInterval(monitorTimer);
+  if (updateCheckTimer) clearInterval(updateCheckTimer);
   if (nextProcess && !nextProcess.killed) {
     try { nextProcess.kill(); } catch {}
   }
