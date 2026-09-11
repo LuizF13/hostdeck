@@ -1,0 +1,53 @@
+{
+  "name": "hostdeck",
+  "version": "1.4.6",
+  "description": "HostDeck Infrastructure OS 1.4.6: corrige o runtime Next.js no instalador Electron, preserva dependências standalone via runtime_modules e adiciona validação de boot.",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "npm run clean && next build && node scripts/prepare-desktop.mjs",
+    "start": "next start",
+    "lint": "eslint .",
+    "desktop:dev": "cross-env HOSTDECK_DEV=1 electron electron/main.cjs",
+    "desktop:pack": "npm run build && electron-builder --config electron-builder.config.cjs --dir --publish never",
+    "desktop:dist": "npm run build && electron-builder --config electron-builder.config.cjs --publish never",
+    "desktop:publish": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --publish always",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major",
+    "github:setup": "node scripts/configure-github-release.mjs",
+    "github:release:patch": "node scripts/release-github.mjs patch",
+    "github:release:minor": "node scripts/release-github.mjs minor",
+    "github:release:major": "node scripts/release-github.mjs major",
+    "desktop:dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win --publish never",
+    "desktop:dist:linux": "npm run build && electron-builder --config electron-builder.config.cjs --linux --publish never",
+    "desktop:dist:mac": "npm run build && electron-builder --config electron-builder.config.cjs --mac --publish never",
+    "desktop:publish:win": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --win --publish always",
+    "desktop:publish:linux": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --linux --publish always",
+    "desktop:publish:mac": "npm run build && cross-env HOSTDECK_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac --publish always",
+    "clean": "node scripts/clean-build.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "lucide-react": "^0.468.0",
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.16.1",
+    "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LuizF13/hostdeck.git"
+  },
+  "homepage": "https://github.com/LuizF13/hostdeck"
+}

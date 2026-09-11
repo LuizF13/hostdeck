@@ -1,0 +1,26 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="48" x2="440" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6D5DFB"/>
+      <stop offset="0.48" stop-color="#4B7EFF"/>
+      <stop offset="1" stop-color="#18C7B5"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="176" y1="150" x2="346" y2="366" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#DDE9FF" stop-opacity="0.78"/>
+    </linearGradient>
+    <filter id="shadow" x="32" y="32" width="448" height="448" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#13244A" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+  <rect x="56" y="56" width="400" height="400" rx="112" fill="url(#bg)" filter="url(#shadow)"/>
+  <path d="M153 170C153 151.222 168.222 136 187 136H325C343.778 136 359 151.222 359 170V215H153V170Z" fill="url(#shine)"/>
+  <path d="M153 235H359V278H153V235Z" fill="url(#shine)" fill-opacity="0.92"/>
+  <path d="M153 298H359V343C359 361.778 343.778 377 325 377H187C168.222 377 153 361.778 153 343V298Z" fill="url(#shine)" fill-opacity="0.82"/>
+  <circle cx="187" cy="176" r="10" fill="#5E63FA"/>
+  <circle cx="187" cy="256" r="10" fill="#4C80F8"/>
+  <circle cx="187" cy="337" r="10" fill="#20BDB2"/>
+  <rect x="216" y="166" width="105" height="20" rx="10" fill="#5D6A9F" fill-opacity="0.35"/>
+  <rect x="216" y="246" width="74" height="20" rx="10" fill="#5D6A9F" fill-opacity="0.28"/>
+  <rect x="216" y="327" width="118" height="20" rx="10" fill="#5D6A9F" fill-opacity="0.25"/>
+</svg>

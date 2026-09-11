@@ -1,0 +1,108 @@
+import type { HostingPluginDefinition, Provider } from "@/lib/types";
+
+export const HOSTING_PLUGINS: HostingPluginDefinition[] = [
+  {
+    id: "square",
+    name: "Square Cloud",
+    shortName: "Square",
+    description: "Apps, recursos, logs ao vivo e ações de start/stop/restart.",
+    category: "hosting",
+    docsUrl: "https://docs.squarecloud.app/",
+    portalUrl: "https://squarecloud.app/dashboard/applications",
+    tokenGuide: ["Entre no painel da Square Cloud.", "Abra a área de perfil/API, copie sua API Key pessoal.", "Cole a chave no HostDeck e clique em Conectar plugin."],
+    color: "#8b5cf6",
+    fields: [{ key: "apiKey", env: "SQUARECLOUD_API_KEY", label: "API Key", placeholder: "SQUARECLOUD_API_KEY", secret: true }],
+    capabilities: ["Aplicações", "CPU/RAM", "Logs", "Live logs", "Start/Stop/Restart"],
+  },
+  {
+    id: "vercel",
+    name: "Vercel",
+    shortName: "Vercel",
+    description: "Projetos, deployments, URLs, logs de build e pause/resume.",
+    category: "hosting",
+    docsUrl: "https://vercel.com/docs/rest-api",
+    portalUrl: "https://vercel.com/account/tokens",
+    tokenGuide: ["Entre na Vercel e abra Account Settings → Tokens.", "Crie um Access Token com nome para o HostDeck.", "Se usar Team, copie também o Team ID em Team Settings."],
+    color: "#f8fafc",
+    fields: [
+      { key: "token", env: "VERCEL_TOKEN", label: "Access Token", placeholder: "VERCEL_TOKEN", secret: true },
+      { key: "teamId", env: "VERCEL_TEAM_ID", label: "Team ID", placeholder: "team_xxxxxxxxx", optional: true, help: "Opcional para conta pessoal." },
+    ],
+    capabilities: ["Projetos", "Deployments", "URLs", "Build logs", "Pause/Resume"],
+  },
+  {
+    id: "render",
+    name: "Render",
+    shortName: "Render",
+    description: "Serviços e status centralizados pela API oficial da Render.",
+    category: "hosting",
+    docsUrl: "https://api-docs.render.com/",
+    portalUrl: "https://dashboard.render.com/account/api-keys",
+    tokenGuide: ["Abra Render Dashboard → Account Settings → API Keys.", "Crie uma nova API Key e copie o valor.", "Cole a chave no HostDeck para habilitar os serviços."],
+    color: "#46e3b7",
+    fields: [{ key: "apiKey", env: "RENDER_API_KEY", label: "API Key", placeholder: "RENDER_API_KEY", secret: true }],
+    capabilities: ["Serviços", "Status", "URL", "Runtime", "Região"],
+  },
+  {
+    id: "netlify",
+    name: "Netlify",
+    shortName: "Netlify",
+    description: "Sites, deploy publicado, framework e endereço de produção.",
+    category: "hosting",
+    docsUrl: "https://open-api.netlify.com/",
+    portalUrl: "https://app.netlify.com/user/applications#personal-access-tokens",
+    tokenGuide: ["Abra User Settings da Netlify.", "Entre em Applications → Personal access tokens.", "Crie um token novo e cole no HostDeck."],
+    color: "#32e6e2",
+    fields: [{ key: "token", env: "NETLIFY_TOKEN", label: "Personal Access Token", placeholder: "NETLIFY_TOKEN", secret: true }],
+    capabilities: ["Sites", "Deploys", "URLs", "Framework", "Status"],
+  },
+  {
+    id: "cloudflare",
+    name: "Cloudflare Pages",
+    shortName: "Cloudflare",
+    description: "Projetos Pages e deployments de produção da sua conta Cloudflare.",
+    category: "hosting",
+    docsUrl: "https://developers.cloudflare.com/api/resources/pages/",
+    portalUrl: "https://dash.cloudflare.com/profile/api-tokens",
+    tokenGuide: ["Abra o painel da Cloudflare em My Profile → API Tokens.", "Crie um token com permissão para Pages e copie também o Account ID.", "Cole ambos os dados no HostDeck para ativar o plugin."],
+    color: "#f59e0b",
+    fields: [
+      { key: "token", env: "CLOUDFLARE_API_TOKEN", label: "API Token", placeholder: "CLOUDFLARE_API_TOKEN", secret: true },
+      { key: "accountId", env: "CLOUDFLARE_ACCOUNT_ID", label: "Account ID", placeholder: "32-character account id" },
+    ],
+    capabilities: ["Pages", "Deployments", "URLs", "Branch", "Status"],
+  },
+  {
+    id: "digitalocean",
+    name: "DigitalOcean App Platform",
+    shortName: "DigitalOcean",
+    description: "Apps, ingress, deployment ativo e região do App Platform.",
+    category: "hosting",
+    docsUrl: "https://docs.digitalocean.com/products/app-platform/reference/",
+    portalUrl: "https://cloud.digitalocean.com/account/api/tokens",
+    tokenGuide: ["Entre na DigitalOcean em API → Tokens/Keys.", "Gere um Personal Access Token com escopo de leitura/escrita no App Platform.", "Cole o token no HostDeck."],
+    color: "#2997ff",
+    fields: [{ key: "token", env: "DIGITALOCEAN_TOKEN", label: "API Token", placeholder: "DIGITALOCEAN_TOKEN", secret: true }],
+    capabilities: ["Apps", "Ingress", "Deployments", "Região", "Status"],
+  },
+  {
+    id: "heroku",
+    name: "Heroku",
+    shortName: "Heroku",
+    description: "Aplicações, stack, web URL e modo maintenance pela Platform API.",
+    category: "hosting",
+    docsUrl: "https://devcenter.heroku.com/articles/platform-api-reference",
+    portalUrl: "https://dashboard.heroku.com/account",
+    tokenGuide: ["Abra Heroku Dashboard → Account Settings.", "Na área de API Key, revele ou regenere a chave.", "Copie a API Key e cole no HostDeck."],
+    color: "#9b87f5",
+    fields: [{ key: "token", env: "HEROKU_API_KEY", label: "API Key", placeholder: "HEROKU_API_KEY", secret: true }],
+    capabilities: ["Apps", "URL", "Stack", "Maintenance", "Região"],
+  },
+];
+
+export const PLUGIN_BY_ID = new Map<Provider, HostingPluginDefinition>(HOSTING_PLUGINS.map((plugin) => [plugin.id, plugin]));
+export const PROVIDER_IDS = HOSTING_PLUGINS.map((plugin) => plugin.id);
+
+export function isProvider(value: string): value is Provider {
+  return PROVIDER_IDS.includes(value as Provider);
+}

@@ -1,0 +1,50 @@
+# Configuracao LOCAL segura. Nao contem publish de proposito.
+# Para releases com GitHub updater, os scripts usam electron-builder.config.cjs
+# com HOSTDECK_RELEASE=1.
+appId: com.hostdeck.desktop
+productName: HostDeck
+directories:
+  output: dist
+  buildResources: build
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+files:
+  - electron/**/*
+  - build/icon.png
+  - package.json
+extraResources:
+  - from: .hostdeck-runtime/server.js
+    to: standalone/server.js
+  - from: .hostdeck-runtime/package.json
+    to: standalone/package.json
+  - from: .hostdeck-runtime/.next
+    to: standalone/.next
+    filter:
+      - "**/*"
+  - from: .hostdeck-runtime/runtime_modules
+    to: standalone/runtime_modules
+    filter:
+      - "**/*"
+  - from: .hostdeck-runtime/public
+    to: standalone/public
+    filter:
+      - "**/*"
+asar: true
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+mac:
+  icon: build/icon.icns
+  target:
+    - dmg
+    - zip
+linux:
+  icon: build/icon.png
+  target:
+    - AppImage
+  category: Utility
