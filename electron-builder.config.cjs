@@ -45,6 +45,7 @@ if (releaseBuild && !githubRepo) {
 const config = {
   appId: 'com.hostdeck.desktop',
   productName: 'HostDeck',
+  executableName: 'HostDeck',
   directories: {
     output: 'dist',
     buildResources: 'build',
@@ -67,15 +68,20 @@ const config = {
   asar: true,
   win: {
     icon: 'build/icon.ico',
-    target: ['nsis'],
+    artifactName: 'HostDeck-Setup-${version}-${arch}.${ext}',
+    target: [{ target: 'nsis', arch: ['x64'] }],
   },
   nsis: {
     oneClick: false,
     shortcutName: 'HostDeck',
     uninstallDisplayName: 'HostDeck',
     allowToChangeInstallationDirectory: true,
-    createDesktopShortcut: true,
+    createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
+    runAfterFinish: true,
+    installerIcon: 'build/icon.ico',
+    uninstallerIcon: 'build/icon.ico',
+    installerHeaderIcon: 'build/icon.ico',
   },
   mac: {
     icon: 'build/icon.icns',

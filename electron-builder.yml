@@ -3,6 +3,7 @@
 # com HOSTDECK_RELEASE=1.
 appId: com.hostdeck.desktop
 productName: HostDeck
+executableName: HostDeck
 directories:
   output: dist
   buildResources: build
@@ -33,6 +34,7 @@ extraResources:
 asar: true
 win:
   icon: build/icon.ico
+  artifactName: "HostDeck-Setup-${version}-${arch}.${ext}"
   target:
     - nsis
 nsis:
@@ -40,8 +42,12 @@ nsis:
   shortcutName: HostDeck
   uninstallDisplayName: HostDeck
   allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
+  createDesktopShortcut: always
   createStartMenuShortcut: true
+  runAfterFinish: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
 mac:
   icon: build/icon.icns
   target:

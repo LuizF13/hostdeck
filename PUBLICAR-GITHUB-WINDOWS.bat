@@ -5,7 +5,13 @@ echo.
 echo HostDeck - publicar nova versao no GitHub
 echo ===========================================
 echo.
-call npm run github:release:patch
+set /p MSG=Resumo da atualizacao (Enter para usar padrao): 
+echo.
+if "%MSG%"=="" (
+  call npm run release
+) else (
+  call npm run release -- "%MSG%"
+)
 if errorlevel 1 (
   echo.
   echo A publicacao nao foi concluida. Leia a mensagem acima.
@@ -13,5 +19,5 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-echo Tag enviada. Acompanhe o workflow Release Desktop no GitHub Actions.
+echo Release enviada. O GitHub Actions vai gerar o instalador oficial.
 pause

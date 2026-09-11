@@ -6,3 +6,6 @@ dist
 *.log
 .DS_Store
 *.tsbuildinfo
+
+.hostdeck-runtime
+.hostdeck-github.json

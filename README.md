@@ -209,3 +209,40 @@ npm run desktop:dist:win
 ```
 
 Ao abrir o app instalado, o log deve mostrar `version: 1.4.6` e o campo `runtimeModules` no evento `Iniciando servidor standalone`.
+
+## Windows: qual arquivo instalar
+
+Para instalar o HostDeck no Windows, use **somente** o instalador gerado com este nome:
+
+```text
+HostDeck-Setup-<versao>-x64.exe
+```
+
+Nao abra `node_modules/electron/dist/electron.exe`, nao fixe o Electron do modo de desenvolvimento na barra de tarefas e nao use executaveis de pastas temporarias/unpacked como instalador.
+
+Build local e instalacao:
+
+```powershell
+npm install
+npm run desktop:dist:win
+```
+
+O build valida automaticamente se o instalador oficial foi realmente criado. O arquivo fica em `dist/`.
+
+Para desenvolver:
+
+```powershell
+npm run desktop:dev
+```
+
+O modo de desenvolvimento usa `electron .`. Ele serve apenas para testar; para um atalho permanente, instale o `HostDeck-Setup-...exe` e fixe o **HostDeck instalado** no Menu Iniciar/barra de tarefas.
+
+## Release em um comando
+
+Depois de configurar o remote GitHub, altere o codigo e execute:
+
+```powershell
+npm run release -- "resumo da atualizacao"
+```
+
+O comando valida o build, faz commit das alteracoes, incrementa a versao patch, cria a tag e envia tudo. O GitHub Actions gera e publica o instalador oficial.
