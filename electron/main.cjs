@@ -123,7 +123,15 @@ let updateState = {
 };
 
 function appIconPath() {
+  const iconFile = process.platform === "win32" ? "icon.ico" : process.platform === "darwin" ? "icon.icns" : "icon.png";
+  const preferred = path.join(__dirname, "..", "build", iconFile);
+  if (fs.existsSync(preferred)) return preferred;
   return path.join(__dirname, "..", "build", "icon.png");
+}
+
+function notificationIconPath() {
+  const png = path.join(__dirname, "..", "build", "icon.png");
+  return fs.existsSync(png) ? png : appIconPath();
 }
 
 function parseEnvFile(filePath) {
@@ -1005,7 +1013,7 @@ async function performMonitorScan(force = false) {
       const notification = new Notification({
         title: record.headline || "HostDeck Intelligence",
         body: body.slice(0, 500),
-        icon: fs.existsSync(appIconPath()) ? appIconPath() : undefined,
+        icon: fs.existsSync(notificationIconPath()) ? notificationIconPath() : undefined,
         urgency: record.severity === "critical" ? "critical" : "normal",
       });
       notification.on("click", () => {
@@ -1237,7 +1245,10 @@ process.on("unhandledRejection", (reason) => {
 app.whenReady().then(async () => {
   ensureLogStream();
   logMessage("INFO", "HostDeck iniciando", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, execPath: process.execPath });
-  if (process.platform === "win32") app.setAppUserModelId("com.hostdeck.desktop");
+  app.setName("HostDeck");
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.hostdeck.desktop");
+  }
   configureUpdater();
   registerIpc();
   try {

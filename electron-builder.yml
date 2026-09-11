@@ -10,6 +10,8 @@ artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 files:
   - electron/**/*
   - build/icon.png
+  - build/icon.ico
+  - build/icon.icns
   - package.json
 extraResources:
   - from: .hostdeck-runtime/server.js
@@ -35,6 +37,8 @@ win:
     - nsis
 nsis:
   oneClick: false
+  shortcutName: HostDeck
+  uninstallDisplayName: HostDeck
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true

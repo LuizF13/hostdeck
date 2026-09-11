@@ -1,7 +1,7 @@
 {
   "name": "hostdeck",
-  "version": "1.4.6",
-  "description": "HostDeck Infrastructure OS 1.4.6: corrige o runtime Next.js no instalador Electron, preserva dependências standalone via runtime_modules e adiciona validação de boot.",
+  "version": "1.4.7",
+  "description": "HostDeck Infrastructure OS 1.4.7: ícone nativo corrigido na barra de tarefas, atalhos e runtime do Windows.",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {

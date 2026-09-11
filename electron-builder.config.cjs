@@ -53,6 +53,8 @@ const config = {
   files: [
     'electron/**/*',
     'build/icon.png',
+    'build/icon.ico',
+    'build/icon.icns',
     'package.json',
   ],
   extraResources: [
@@ -69,6 +71,8 @@ const config = {
   },
   nsis: {
     oneClick: false,
+    shortcutName: 'HostDeck',
+    uninstallDisplayName: 'HostDeck',
     allowToChangeInstallationDirectory: true,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
