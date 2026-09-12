@@ -801,6 +801,7 @@ type WorkspaceEntry = { name: string; path: string; type: "file" | "directory"; 
 type WorkspaceList = { cwd: string; entries: WorkspaceEntry[]; capabilities?: { read?: boolean; write?: boolean; upload?: boolean; deployZip?: boolean } };
 
 function WorkspaceModal({ app, onClose, onToast }: { app: HostingApp; onClose: () => void; onToast: (message: string) => void }) {
+  const toastRef = useRef(onToast);
   const [mounted, setMounted] = useState(false);
   const [cwd, setCwd] = useState("");
   const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
@@ -813,6 +814,7 @@ function WorkspaceModal({ app, onClose, onToast }: { app: HostingApp; onClose: (
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const base = `/api/workspace/${app.provider}/${encodeURIComponent(app.id)}`;
   const dirty = Boolean(selectedPath) && content !== savedContent;
+  useEffect(() => { toastRef.current = onToast; }, [onToast]);
 
   const list = useCallback(async (path = "") => {
     setBusy(true);
@@ -821,9 +823,9 @@ function WorkspaceModal({ app, onClose, onToast }: { app: HostingApp; onClose: (
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Falha ao listar arquivos.");
       setCwd(json.cwd || path); setEntries(json.entries || []);
-    } catch (error) { onToast(error instanceof Error ? error.message : "Falha ao listar arquivos."); }
+    } catch (error) { toastRef.current(error instanceof Error ? error.message : "Falha ao listar arquivos."); }
     finally { setBusy(false); }
-  }, [base, onToast]);
+  }, [base]);
 
   useEffect(() => { setMounted(true); list(""); }, [base, list]);
   async function openEntry(entry: WorkspaceEntry) {
