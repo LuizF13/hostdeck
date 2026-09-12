@@ -309,6 +309,12 @@ function notificationStateFile() {
   return path.join(app.getPath("userData"), "notification-state.json");
 }
 
+function mediaDirectory() {
+  const dir = path.join(app.getPath("userData"), "media");
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  return dir;
+}
+
 function credentialsEnv() {
   const projectEnv = parseEnvFile(path.join(process.cwd(), ".env.local"));
   const desktopEnv = parseEnvFile(credentialFile());
@@ -560,6 +566,7 @@ async function startProductionServer() {
       NODE_PATH: nodePath,
       HOSTNAME: "127.0.0.1",
       PORT: String(runtimePort),
+      HOSTDECK_MEDIA_DIR: mediaDirectory(),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -591,6 +598,7 @@ async function startDevelopmentServer() {
       ...credentialsEnv(),
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "development",
+      HOSTDECK_MEDIA_DIR: mediaDirectory(),
     },
     stdio: "inherit",
   });
@@ -620,7 +628,7 @@ function sendUpdateState(patch) {
 function friendlyUpdaterError(error) {
   const raw = error?.message || String(error || "Falha ao verificar atualização.");
   if (/404|releases\.atom|github\.com/i.test(raw)) {
-    return "O GitHub respondeu 404 ao consultar as releases. Confirme se o repositório configurado existe, se o nome owner/repo está correto e se o repositório de releases é público. Repositórios privados exigem autenticação e não devem ter token embutido no aplicativo dos usuários.";
+    return "O repositório do HostDeck foi encontrado, mas o GitHub não expôs uma release pública para o updater. Releases em Draft não aparecem para os usuários. Publique a release no GitHub; builds novos do HostDeck já são configurados para publicar como Release automaticamente.";
   }
   if (/401|403|authentication|token/i.test(raw)) {
     return "O GitHub recusou a consulta de atualização. Verifique as permissões/publicidade do repositório de releases. Não coloque um token pessoal dentro do aplicativo distribuído.";

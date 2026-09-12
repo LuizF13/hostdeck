@@ -5,7 +5,7 @@ import {
   CirclePlay, Cloud, Copy, Cpu, Download, ExternalLink, Globe2, HardDrive, Info, KeyRound,
   Layers3, LayoutDashboard, Loader2, Maximize2, MemoryStick, MessageSquare, Minimize2, Monitor,
   MonitorCog, Moon, Pause, Play, Plug, RefreshCw, RotateCcw, Search, Send, Settings, ShieldCheck,
-  Sparkles, SquareTerminal, Sun, Trash2, Webhook, X, Zap,
+  Sparkles, SquareTerminal, Sun, Trash2, Upload, Webhook, X, Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -38,8 +38,18 @@ type DesktopConfigStatus = Awaited<ReturnType<NonNullable<Window["hostDeckDeskto
 type UpdateState = Awaited<ReturnType<NonNullable<Window["hostDeckDesktop"]>["getUpdateStatus"]>> & { releaseNotes?: string[] };
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; createdAt: string };
 
-const FALLBACK_APP_GIF = "/api/media/app";
-const BANNER_GIF = "/api/media/banner";
+function useMediaUrl(kind: "app" | "banner") {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string }>).detail;
+      if (!detail?.kind || detail.kind === kind) setRevision(Date.now());
+    };
+    window.addEventListener("hostdeck-media-changed", refresh);
+    return () => window.removeEventListener("hostdeck-media-changed", refresh);
+  }, [kind]);
+  return `/api/media/${kind}?v=${revision}`;
+}
 
 const ACTION_LABEL: Record<AppAction, string> = { start: "Iniciar", stop: "Parar", restart: "Reiniciar", pause: "Pausar", resume: "Retomar" };
 const BUSY_LABEL: Record<AppAction, string> = { start: "Iniciando…", stop: "Parando…", restart: "Reiniciando…", pause: "Pausando…", resume: "Retomando…" };
@@ -90,13 +100,14 @@ function StatusPill({ status }: { status: HostingApp["status"] }) {
 }
 
 function AppArtwork({ app, large = false }: { app: HostingApp; large?: boolean }) {
+  const fallbackLogo = useMediaUrl("app");
   const [failed, setFailed] = useState(false);
   const directLogo = app.logoUrl || "";
-  const [source, setSource] = useState(directLogo || FALLBACK_APP_GIF);
-  useEffect(() => { setFailed(false); setSource(directLogo || FALLBACK_APP_GIF); }, [directLogo]);
+  const [source, setSource] = useState(directLogo || fallbackLogo);
+  useEffect(() => { setFailed(false); setSource(directLogo || fallbackLogo); }, [directLogo, fallbackLogo]);
   return (
     <div className={`app-artwork ${large ? "large" : ""}`}>
-      {!failed ? <img src={source} alt="" onError={() => { if (source !== FALLBACK_APP_GIF) setSource(FALLBACK_APP_GIF); else setFailed(true); }} /> : <div className="art-fallback"><AppWindow size={large ? 28 : 20} /></div>}
+      {!failed ? <img src={source} alt="" onError={() => { if (source !== fallbackLogo) setSource(fallbackLogo); else setFailed(true); }} /> : <div className="art-fallback"><AppWindow size={large ? 28 : 20} /></div>}
       <span className={`art-provider provider-${app.provider}`}><ProviderMark provider={app.provider} size={large ? 17 : 13} /></span>
     </div>
   );
@@ -187,12 +198,13 @@ function NavButton({ active, icon, label, badge, dangerBadge, onClick }: { activ
 }
 
 function OverviewPage({ data, monitor, onOpenApps, onOpenAi, onOpenSettings }: { data: AppsResponse; monitor: MonitorState | null; onOpenApps: () => void; onOpenAi: () => void; onOpenSettings: () => void }) {
+  const bannerUrl = useMediaUrl("banner");
   const online = data.apps.filter((app) => app.status === "online").length;
   const attention = data.apps.filter((app) => ["offline", "paused", "error"].includes(app.status)).length;
   const connected = data.providers.filter((provider) => provider.configured).length;
   return <div className="page-enter">
     <section className="overview-banner glass-card">
-      <img className="overview-banner-media" src={BANNER_GIF} alt="" />
+      <img className="overview-banner-media" src={bannerUrl} alt="" />
       <div className="overview-banner-shade" />
       <div className="overview-banner-content"><div className="eyebrow">Infrastructure workspace</div><h1>Controle sua infraestrutura sem perder contexto.</h1><p>Aplicações, plugins, observabilidade e Gemini em uma única central privada.</p><div className="hero-actions"><button className="btn primary" onClick={onOpenApps}><AppWindow size={16} />Ver aplicações</button><button className="btn glass" onClick={onOpenAi}><Sparkles size={16} />Abrir Intelligence</button></div></div>
       <div className="banner-health"><span className={attention ? "warn" : "ok"} /><div><strong>{attention ? `${attention} requer atenção` : "Tudo operacional"}</strong><small>{online}/{data.apps.length || 0} aplicações online</small></div></div>
@@ -224,6 +236,7 @@ function ActionButtons({ app, pending, onAction }: { app: HostingApp; pending?: 
 }
 
 function AppExpanded({ app, pending, onAction, onLogs, onToast }: { app: HostingApp; pending?: PendingAction; onAction: (app: HostingApp, action: AppAction) => void; onLogs: () => void; onToast: (m: string) => void }) {
+  const bannerUrl = useMediaUrl("banner");
   const [details, setDetails] = useState<Partial<HostingApp>>({});
   const [loading, setLoading] = useState(false);
   useEffect(() => {
@@ -249,7 +262,7 @@ function AppExpanded({ app, pending, onAction, onLogs, onToast }: { app: Hosting
   const view: HostingApp = { ...app, ...details, actions: details.actions ?? app.actions };
   async function copy(value?: string) { if (!value) return; try { await navigator.clipboard.writeText(value); onToast("Copiado para a área de transferência."); } catch { onToast("Não foi possível copiar."); } }
   return <section key={appKey(app)} className="app-expanded glass-card detail-enter">
-    <div className="app-expanded-banner"><img src={BANNER_GIF} alt="" /><div className="expanded-banner-overlay" /><div className="expanded-head"><AppArtwork app={view} large /><div className="expanded-identity"><ProviderBadge provider={view.provider} /><h2>{view.name}</h2><p>{view.description || `Aplicação gerenciada pelo plugin ${providerName(view.provider)}.`}</p></div><StatusPill status={view.status} /></div></div>
+    <div className="app-expanded-banner"><img src={bannerUrl} alt="" /><div className="expanded-banner-overlay" /><div className="expanded-head"><AppArtwork app={view} large /><div className="expanded-identity"><ProviderBadge provider={view.provider} /><h2>{view.name}</h2><p>{view.description || `Aplicação gerenciada pelo plugin ${providerName(view.provider)}.`}</p></div><StatusPill status={view.status} /></div></div>
     {pending && <div className="operation-banner"><Loader2 className="spin" size={16} /><div><strong>{BUSY_LABEL[pending.action]}</strong><span>Os controles serão liberados depois que o provedor confirmar o estado.</span></div></div>}
     <div className="expanded-toolbar"><div className="action-group"><button className="btn glass" onClick={onLogs}><SquareTerminal size={15} />Logs</button>{view.url && <a className="btn glass" href={view.url} target="_blank" rel="noreferrer"><ExternalLink size={15} />Abrir</a>}</div><ActionButtons app={view} pending={pending} onAction={onAction} /></div>
     <div className="expanded-grid"><div className="metric-tile"><span>Status</span><strong>{statusLabel(view.status)}</strong><small>{providerName(view.provider)}</small></div><div className="metric-tile"><span>CPU</span><strong>{view.cpu || "—"}</strong><small>uso atual</small></div><div className="metric-tile"><span>Memória</span><strong>{view.ram || "—"}</strong><small>uso atual</small></div><div className="metric-tile"><span>Uptime</span><strong>{formatUptime(view.uptime)}</strong><small>{loading ? "consultando…" : "tempo online"}</small></div></div>
@@ -374,6 +387,60 @@ function PluginSetupModal({ plugin, status, onClose, onSaved }: { plugin: Hostin
   }
   const configured = Boolean(status?.plugins?.[plugin.id]?.configured);
   return <div className="modal-backdrop" onMouseDown={saving ? undefined : onClose}><section className="plugin-modal glass-modal" onMouseDown={(e) => e.stopPropagation()}><header><div className={`plugin-hero-icon provider-${plugin.id}`}><ProviderMark provider={plugin.id} size={21} /></div><div><div className="eyebrow">Hosting plugin</div><h2>{plugin.name}</h2><p>{plugin.description}</p></div><button className="close-btn" onClick={onClose}><X size={17} /></button></header><div className="plugin-modal-body"><div className="capability-row">{plugin.capabilities.map((item) => <span key={item}>{item}</span>)}</div>{!desktop && <div className="settings-note">No modo navegador, configure as variáveis no <code>.env.local</code>. O gerenciador seguro de plugins funciona no app Electron.</div>}<div className="plugin-help-grid"><div className="plugin-help-card"><strong>Onde pegar a chave</strong><ol>{(plugin.tokenGuide || []).map((step) => <li key={step}>{step}</li>)}</ol></div><div className="plugin-help-card"><strong>Links úteis</strong><div className="plugin-help-links">{plugin.portalUrl && <a className="btn glass mini" href={plugin.portalUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} />Abrir painel</a>}<a className="btn glass mini" href={plugin.docsUrl} target="_blank" rel="noreferrer"><BookOpenTextFallback />Documentação</a></div><p>Depois de salvar, o HostDeck mostra que a integração foi concluída e passa a listar as aplicações desse provedor.</p></div></div>{plugin.fields.map((field) => <label className="settings-field" key={field.key}><span>{field.label}{field.optional && <small> opcional</small>}</span><input type={field.secret ? "password" : "text"} autoComplete="off" value={values[field.key] || ""} onChange={(e) => setValues((current) => ({ ...current, [field.key]: e.target.value }))} placeholder={configured && field.secret ? "•••••••• credencial salva ••••••••" : field.placeholder} />{field.help && <small>{field.help}</small>}</label>)}{error && <div className="settings-error">{error}</div>}</div><footer>{configured && desktop && <button className="btn danger-ghost" onClick={remove} disabled={saving}><Trash2 size={14} />Desconectar</button>}<div className="spacer" /><button className="btn glass" onClick={onClose}>Cancelar</button>{desktop && <button className="btn primary" onClick={save} disabled={saving}>{saving ? <Loader2 className="spin" size={14} /> : <Check size={14} />}{configured ? "Salvar alterações" : "Conectar plugin"}</button>}</footer></section></div>;
+}
+
+function MediaUploadCard({ kind, title, description }: { kind: "app" | "banner"; title: string; description: string }) {
+  const mediaUrl = useMediaUrl(kind);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  async function upload(file?: File) {
+    if (!file) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      const response = await fetch(`/api/media/${kind}`, { method: "POST", body });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Falha ao enviar imagem.");
+      window.dispatchEvent(new CustomEvent("hostdeck-media-changed", { detail: { kind } }));
+      setMessage("Imagem salva localmente no HostDeck.");
+      if (inputRef.current) inputRef.current.value = "";
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Falha ao enviar imagem.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/media/${kind}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Falha ao remover imagem.");
+      window.dispatchEvent(new CustomEvent("hostdeck-media-changed", { detail: { kind } }));
+      setMessage("Imagem personalizada removida. O padrão local foi restaurado.");
+      if (inputRef.current) inputRef.current.value = "";
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Falha ao remover imagem.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <article className={`media-upload-card ${kind}`}>
+    <div className="media-upload-preview"><img src={mediaUrl} alt={`Prévia: ${title}`} /></div>
+    <div className="media-upload-content"><strong>{title}</strong><p>{description}</p><small>PNG, JPG, WebP, GIF ou AVIF · máximo 25 MB</small></div>
+    <div className="media-upload-actions">
+      <label className={`btn primary media-file-button ${busy ? "disabled" : ""}`}><Upload size={15} />{busy ? "Salvando…" : "Escolher arquivo"}<input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" disabled={busy} onChange={(event) => upload(event.target.files?.[0])} /></label>
+      <button className="btn glass" onClick={remove} disabled={busy}><Trash2 size={14} />Restaurar padrão</button>
+    </div>
+    {message && <div className="media-upload-message">{message}</div>}
+  </article>;
 }
 
 function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTab = "plugins" }: { theme: ThemeChoice; onThemeChange: (v: ThemeChoice) => void; config: DesktopConfigStatus | null; setConfig: (v: DesktopConfigStatus) => void; data: AppsResponse; initialTab?: SettingsTab }) {
@@ -590,6 +657,8 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
           {tab === "appearance" && <>
             <div className="settings-section-head"><div><div className="eyebrow">Appearance</div><h2>Tema e interface</h2><p>Glassmorphism adaptativo com Dark, Light ou sincronização automática com o sistema.</p></div></div>
             <div className="theme-showcase"><button className={theme === "system" ? "active" : ""} onClick={() => onThemeChange("system")}><Monitor size={24} /><strong>Sistema</strong><span>Segue o Windows/macOS/Linux</span></button><button className={theme === "dark" ? "active" : ""} onClick={() => onThemeChange("dark")}><Moon size={24} /><strong>Dark</strong><span>Contraste focado em operação</span></button><button className={theme === "light" ? "active" : ""} onClick={() => onThemeChange("light")}><Sun size={24} /><strong>Light</strong><span>Interface clara e suave</span></button></div>
+            <div className="settings-section-head media-settings-head"><div><div className="eyebrow">Local media</div><h2>Banner e logo por arquivo</h2><p>As imagens ficam gravadas no armazenamento local do HostDeck e continuam disponíveis depois de reiniciar ou atualizar o aplicativo. Nenhum link externo é necessário.</p></div></div>
+            <div className="media-settings-grid"><MediaUploadCard kind="banner" title="Banner do dashboard" description="Imagem de fundo usada no resumo e nos detalhes das aplicações." /><MediaUploadCard kind="app" title="Logo padrão das aplicações" description="Usado quando o provedor não fornece uma logo própria para a aplicação." /></div>
           </>}
 
           {tab === "updates" && <>

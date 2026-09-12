@@ -105,6 +105,9 @@ if (releaseBuild) {
     owner: githubRepo.owner,
     repo: githubRepo.repo,
     channel: 'latest',
+    releaseType: 'release',
+    publishAutoUpdate: true,
+    private: false,
   }];
 }
 
