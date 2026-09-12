@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("hostDeckDesktop", {
   getPluginStatus: () => ipcRenderer.invoke("plugins:get-status"),
   savePlugin: (input) => ipcRenderer.invoke("plugins:save", input),
   testDiscord: () => ipcRenderer.invoke("discord:test"),
+  setDiscordActivity: (input) => ipcRenderer.invoke("discord:activity", input),
 
   minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
   toggleMaximizeWindow: () => ipcRenderer.invoke("window:toggle-maximize"),

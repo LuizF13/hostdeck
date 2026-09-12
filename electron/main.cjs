@@ -63,6 +63,11 @@ let lastGeminiAnalyzeAt = 0;
 let updateCheckTimer = null;
 let tray = null;
 let isQuitting = false;
+let discordRpcSocket = null;
+let discordRpcReady = false;
+let discordRpcBuffer = Buffer.alloc(0);
+let discordRpcActivity = { startedAt: Date.now() };
+let discordRpcReconnectTimer = null;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -345,6 +350,8 @@ function getPreferences() {
     maxRecoveryAttemptsPerHour: clampNumber(saved.maxRecoveryAttemptsPerHour, 1, 5, DEFAULT_MAX_RECOVERY_ATTEMPTS_PER_HOUR),
     discordNotificationsEnabled: saved.discordNotificationsEnabled !== false,
     discordStatusGraphEnabled: saved.discordStatusGraphEnabled !== false,
+    discordRichPresenceEnabled: saved.discordRichPresenceEnabled === true,
+    discordRichPresenceClientId: String(saved.discordRichPresenceClientId || "").trim(),
     automaticUpdatesEnabled: saved.automaticUpdatesEnabled !== false,
     automaticUpdateDownload: saved.automaticUpdateDownload !== false,
     updateCheckMinutes: clampNumber(saved.updateCheckMinutes, 10, 360, DEFAULT_UPDATE_CHECK_MINUTES),
@@ -356,7 +363,7 @@ function getPreferences() {
 function savePreferences(patch = {}) {
   const current = getPreferences();
   const next = { ...current };
-  for (const key of ["aiMonitoringEnabled", "smartAnalysisEnabled", "autoRecoveryEnabled", "notifyInfoChanges", "discordNotificationsEnabled", "discordStatusGraphEnabled", "automaticUpdatesEnabled", "automaticUpdateDownload", "backgroundModeEnabled", "launchAtLogin"]) {
+  for (const key of ["aiMonitoringEnabled", "smartAnalysisEnabled", "autoRecoveryEnabled", "notifyInfoChanges", "discordNotificationsEnabled", "discordStatusGraphEnabled", "discordRichPresenceEnabled", "automaticUpdatesEnabled", "automaticUpdateDownload", "backgroundModeEnabled", "launchAtLogin"]) {
     if (typeof patch[key] === "boolean") next[key] = patch[key];
   }
   if (patch.monitorIntervalSeconds != null) next.monitorIntervalSeconds = clampNumber(patch.monitorIntervalSeconds, 60, 3600, DEFAULT_MONITOR_SECONDS);
@@ -365,6 +372,7 @@ function savePreferences(patch = {}) {
   if (patch.recoveryCooldownMinutes != null) next.recoveryCooldownMinutes = clampNumber(patch.recoveryCooldownMinutes, 5, 180, DEFAULT_RECOVERY_COOLDOWN_MINUTES);
   if (patch.maxRecoveryAttemptsPerHour != null) next.maxRecoveryAttemptsPerHour = clampNumber(patch.maxRecoveryAttemptsPerHour, 1, 5, DEFAULT_MAX_RECOVERY_ATTEMPTS_PER_HOUR);
   if (patch.updateCheckMinutes != null) next.updateCheckMinutes = clampNumber(patch.updateCheckMinutes, 10, 360, DEFAULT_UPDATE_CHECK_MINUTES);
+  if (Object.prototype.hasOwnProperty.call(patch, "discordRichPresenceClientId")) next.discordRichPresenceClientId = String(patch.discordRichPresenceClientId || "").replace(/[^0-9]/g, "").slice(0, 32);
   writeJson(preferencesFile(), next);
   return next;
 }
@@ -390,6 +398,8 @@ function configStatus() {
     discordConfigured: Boolean(env.DISCORD_WEBHOOK_URL),
     discordNotificationsEnabled: prefs.discordNotificationsEnabled,
     discordStatusGraphEnabled: prefs.discordStatusGraphEnabled,
+    discordRichPresenceEnabled: prefs.discordRichPresenceEnabled,
+    discordRichPresenceClientId: prefs.discordRichPresenceClientId,
     plugins,
     aiMonitoringEnabled: prefs.aiMonitoringEnabled,
     smartAnalysisEnabled: prefs.smartAnalysisEnabled,
@@ -481,6 +491,8 @@ function saveCredentials(input = {}) {
     maxRecoveryAttemptsPerHour: input.maxRecoveryAttemptsPerHour,
     discordNotificationsEnabled: input.discordNotificationsEnabled,
     discordStatusGraphEnabled: input.discordStatusGraphEnabled,
+    discordRichPresenceEnabled: input.discordRichPresenceEnabled,
+    discordRichPresenceClientId: input.discordRichPresenceClientId,
     automaticUpdatesEnabled: input.automaticUpdatesEnabled,
     automaticUpdateDownload: input.automaticUpdateDownload,
     updateCheckMinutes: input.updateCheckMinutes,
@@ -744,6 +756,154 @@ function applyLoginItemSetting() {
   } catch (error) {
     logMessage("ERROR", "Falha ao configurar inicialização com o Windows", error);
   }
+}
+
+function discordRpcFrame(op, payload) {
+  const body = Buffer.from(JSON.stringify(payload), "utf8");
+  const header = Buffer.alloc(8);
+  header.writeInt32LE(op, 0);
+  header.writeInt32LE(body.length, 4);
+  return Buffer.concat([header, body]);
+}
+
+function closeDiscordRpc() {
+  if (discordRpcReconnectTimer) clearTimeout(discordRpcReconnectTimer);
+  discordRpcReconnectTimer = null;
+  discordRpcReady = false;
+  discordRpcBuffer = Buffer.alloc(0);
+  if (discordRpcSocket) {
+    try { discordRpcSocket.destroy(); } catch {}
+  }
+  discordRpcSocket = null;
+}
+
+function discordActivityPayload() {
+  const prefs = getPreferences();
+  if (!prefs.discordRichPresenceEnabled || !prefs.discordRichPresenceClientId) return null;
+  const current = discordRpcActivity || {};
+  const selectedProvider = current.provider ? String(current.provider) : "";
+  const selectedProviderName = current.providerName ? String(current.providerName) : selectedProvider;
+  const appName = current.appName ? String(current.appName) : "";
+  const status = current.status ? String(current.status) : "";
+  const startedAt = Math.floor(Number(current.startedAt || Date.now()) / 1000);
+  const assets = appName
+    ? { large_image: selectedProvider || "hostdeck", large_text: appName, small_image: "hostdeck", small_text: "HostDeck" }
+    : selectedProvider
+      ? { large_image: selectedProvider, large_text: selectedProviderName || selectedProvider, small_image: "hostdeck", small_text: "HostDeck" }
+      : { large_image: "hostdeck", large_text: "HostDeck" };
+  return {
+    details: appName || (selectedProviderName ? `Hospedagem: ${selectedProviderName}` : "Infrastructure Control Center"),
+    state: appName ? `${selectedProviderName || selectedProvider}${status ? ` · ${status}` : ""}` : selectedProviderName ? "Gerenciando aplicações" : "Monitorando infraestrutura",
+    timestamps: { start: startedAt },
+    assets,
+    instance: false,
+  };
+}
+
+function sendDiscordRpcActivity() {
+  if (!discordRpcSocket || !discordRpcReady || discordRpcSocket.destroyed) return false;
+  const activity = discordActivityPayload();
+  const payload = {
+    cmd: "SET_ACTIVITY",
+    args: { pid: process.pid, activity },
+    nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  };
+  try {
+    discordRpcSocket.write(discordRpcFrame(1, payload));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function scheduleDiscordRpcReconnect() {
+  const prefs = getPreferences();
+  if (!prefs.discordRichPresenceEnabled || !prefs.discordRichPresenceClientId || isQuitting) return;
+  if (discordRpcReconnectTimer) clearTimeout(discordRpcReconnectTimer);
+  discordRpcReconnectTimer = setTimeout(() => {
+    discordRpcReconnectTimer = null;
+    connectDiscordRpc();
+  }, 8000);
+}
+
+function attachDiscordRpcSocket(socket, clientId) {
+  discordRpcSocket = socket;
+  discordRpcReady = false;
+  discordRpcBuffer = Buffer.alloc(0);
+  socket.on("data", (chunk) => {
+    discordRpcBuffer = Buffer.concat([discordRpcBuffer, chunk]);
+    while (discordRpcBuffer.length >= 8) {
+      const op = discordRpcBuffer.readInt32LE(0);
+      const length = discordRpcBuffer.readInt32LE(4);
+      if (discordRpcBuffer.length < 8 + length) break;
+      const body = discordRpcBuffer.subarray(8, 8 + length);
+      discordRpcBuffer = discordRpcBuffer.subarray(8 + length);
+      if (op !== 1) continue;
+      try {
+        const message = JSON.parse(body.toString("utf8"));
+        if (message?.evt === "READY") {
+          discordRpcReady = true;
+          sendDiscordRpcActivity();
+        }
+      } catch {}
+    }
+  });
+  socket.on("error", () => {});
+  socket.on("close", () => {
+    if (discordRpcSocket === socket) {
+      discordRpcSocket = null;
+      discordRpcReady = false;
+      scheduleDiscordRpcReconnect();
+    }
+  });
+  socket.write(discordRpcFrame(0, { v: 1, client_id: clientId }));
+}
+
+function connectDiscordRpc() {
+  const prefs = getPreferences();
+  if (!prefs.discordRichPresenceEnabled || !prefs.discordRichPresenceClientId) {
+    closeDiscordRpc();
+    return;
+  }
+  if (discordRpcSocket && !discordRpcSocket.destroyed) {
+    sendDiscordRpcActivity();
+    return;
+  }
+  if (process.platform !== "win32") return;
+  const candidates = Array.from({ length: 10 }, (_, index) => `\\\\?\\pipe\\discord-ipc-${index}`);
+  const tryPipe = (index) => {
+    if (index >= candidates.length) {
+      scheduleDiscordRpcReconnect();
+      return;
+    }
+    const socket = net.createConnection(candidates[index]);
+    let connected = false;
+    socket.once("connect", () => {
+      connected = true;
+      attachDiscordRpcSocket(socket, prefs.discordRichPresenceClientId);
+    });
+    socket.once("error", () => {
+      if (!connected) {
+        try { socket.destroy(); } catch {}
+        tryPipe(index + 1);
+      }
+    });
+  };
+  tryPipe(0);
+}
+
+function applyDiscordRpcSettings() {
+  const prefs = getPreferences();
+  if (!prefs.discordRichPresenceEnabled || !prefs.discordRichPresenceClientId) {
+    if (discordRpcSocket && discordRpcReady) {
+      try {
+        discordRpcSocket.write(discordRpcFrame(1, { cmd: "SET_ACTIVITY", args: { pid: process.pid, activity: null }, nonce: `${Date.now()}-clear` }));
+      } catch {}
+    }
+    closeDiscordRpc();
+    return;
+  }
+  connectDiscordRpc();
 }
 
 function createTray() {
@@ -1375,6 +1535,7 @@ function registerIpc() {
   ipcMain.handle("config:save", async (_event, input) => {
     const status = saveCredentials(input || {});
     applyLoginItemSetting();
+    applyDiscordRpcSettings();
     startUpdateLoop();
     await restartManagedServer();
     startMonitorLoop(true);
@@ -1393,6 +1554,13 @@ function registerIpc() {
     startMonitorLoop(true);
     if (mainWindow && !mainWindow.isDestroyed()) setTimeout(() => mainWindow?.loadURL(serverUrl).catch(() => {}), 250);
     return status;
+  });
+  ipcMain.handle("discord:activity", (_event, input) => {
+    discordRpcActivity = { ...(input || {}), startedAt: Number(input?.startedAt || Date.now()) };
+    const prefs = getPreferences();
+    if (prefs.discordRichPresenceEnabled && prefs.discordRichPresenceClientId) connectDiscordRpc();
+    sendDiscordRpcActivity();
+    return { ok: true, enabled: Boolean(prefs.discordRichPresenceEnabled && prefs.discordRichPresenceClientId) };
   });
   ipcMain.handle("discord:test", async () => {
     const env = credentialsEnv();
@@ -1550,6 +1718,7 @@ app.whenReady().then(async () => {
   }
   configureUpdater();
   applyLoginItemSetting();
+  applyDiscordRpcSettings();
   registerIpc();
   try {
     await createWindow();
@@ -1580,6 +1749,7 @@ app.on("before-quit", () => {
   try { logMessage("INFO", "HostDeck encerrando"); } catch {}
   if (monitorTimer) clearInterval(monitorTimer);
   if (updateCheckTimer) clearInterval(updateCheckTimer);
+  closeDiscordRpc();
   if (nextProcess && !nextProcess.killed) {
     try { nextProcess.kill(); } catch {}
   }

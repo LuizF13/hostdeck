@@ -46,6 +46,8 @@ type HostDeckConfigStatus = {
   discordConfigured?: boolean;
   discordNotificationsEnabled?: boolean;
   discordStatusGraphEnabled?: boolean;
+  discordRichPresenceEnabled?: boolean;
+  discordRichPresenceClientId?: string;
   plugins?: Partial<Record<Provider, PluginState>>;
   aiMonitoringEnabled: boolean;
   smartAnalysisEnabled?: boolean;
@@ -73,6 +75,8 @@ type HostDeckConfigInput = {
   discordWebhookUrl?: string;
   discordNotificationsEnabled?: boolean;
   discordStatusGraphEnabled?: boolean;
+  discordRichPresenceEnabled?: boolean;
+  discordRichPresenceClientId?: string;
   aiMonitoringEnabled?: boolean;
   smartAnalysisEnabled?: boolean;
   autoRecoveryEnabled?: boolean;
@@ -106,6 +110,7 @@ declare global {
       getPluginStatus(): Promise<HostDeckConfigStatus>;
       savePlugin(input: { id: Provider; values?: Record<string, string>; remove?: boolean }): Promise<HostDeckConfigStatus>;
       testDiscord(): Promise<{ ok: boolean }>;
+      setDiscordActivity(input?: { provider?: Provider; providerName?: string; appName?: string; status?: string; startedAt?: number }): Promise<{ ok: boolean; enabled?: boolean }>;
       minimizeWindow(): Promise<void>;
       toggleMaximizeWindow(): Promise<boolean>;
       closeWindow(): Promise<void>;

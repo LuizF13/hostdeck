@@ -44,10 +44,10 @@ export async function POST(request: NextRequest) {
             const { done, value } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const blocks = buffer.split("\n\n");
+            const blocks = buffer.split(/\r?\n\r?\n/);
             buffer = blocks.pop() || "";
             for (const block of blocks) {
-              for (const line of block.split("\n")) {
+              for (const line of block.split(/\r?\n/)) {
                 if (!line.startsWith("data:")) continue;
                 const raw = line.slice(5).trim();
                 if (!raw || raw === "[DONE]") continue;
