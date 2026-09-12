@@ -237,3 +237,44 @@ export async function chatWithGemini(input: {
     clearTimeout(timer);
   }
 }
+
+
+export async function streamChatWithGemini(input: {
+  messages: ChatMessage[];
+  apps: HostingApp[];
+  providers: ProviderSummary[];
+  alerts?: Array<Record<string, unknown>>;
+}): Promise<{ response: Response; model: string }> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY não configurada");
+  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const snapshot = {
+    providers: input.providers,
+    apps: input.apps.map(compactApp),
+    recentAlerts: (input.alerts || []).slice(0, 12),
+    generatedAt: new Date().toISOString(),
+  };
+  const system = `Você é o HostDeck Intelligence, um copiloto SRE/DevOps em português do Brasil. Você conhece apenas o snapshot fornecido e a conversa. Seja objetivo, técnico e útil. Nunca invente causa raiz, credencial, log ou métrica. Quando houver incerteza, diga exatamente o que precisa ser verificado. Não execute ações destrutivas e não afirme que reiniciou/parou algo. Ajude a diagnosticar incidentes, comparar aplicações, explicar alertas e sugerir próximos passos.
+
+SNAPSHOT ATUAL:
+${JSON.stringify(snapshot)}`;
+  const contents = [
+    { role: "user", parts: [{ text: system }] },
+    { role: "model", parts: [{ text: "Entendido. Vou analisar somente os dados do HostDeck e deixar explícito quando algo precisar ser confirmado em logs ou no provedor." }] },
+    ...input.messages.slice(-20).map((message) => ({ role: message.role === "assistant" ? "model" : "user", parts: [{ text: message.content }] })),
+  ];
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify({ contents, generationConfig: { temperature: 0.35, maxOutputTokens: 1800 } }),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const raw = await response.text();
+    let message = raw;
+    try { message = (JSON.parse(raw) as GeminiResponse).error?.message || raw; } catch {}
+    throw new Error(message || `Gemini HTTP ${response.status}`);
+  }
+  if (!response.body) throw new Error("O Gemini não abriu o stream de resposta.");
+  return { response, model };
+}

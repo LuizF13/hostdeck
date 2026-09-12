@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld("hostDeckDesktop", {
   minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
   toggleMaximizeWindow: () => ipcRenderer.invoke("window:toggle-maximize"),
   closeWindow: () => ipcRenderer.invoke("window:close"),
+  hideToTray: () => ipcRenderer.invoke("window:hide-to-tray"),
+  quitApp: () => ipcRenderer.invoke("app:quit"),
   isWindowMaximized: () => ipcRenderer.invoke("window:is-maximized"),
   repairWindowsShortcuts: () => ipcRenderer.invoke("windows:repair-shortcuts"),
   onWindowMaximized: (callback) => {

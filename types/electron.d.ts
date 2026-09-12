@@ -45,6 +45,7 @@ type HostDeckConfigStatus = {
   geminiModel?: string;
   discordConfigured?: boolean;
   discordNotificationsEnabled?: boolean;
+  discordStatusGraphEnabled?: boolean;
   plugins?: Partial<Record<Provider, PluginState>>;
   aiMonitoringEnabled: boolean;
   smartAnalysisEnabled?: boolean;
@@ -71,6 +72,7 @@ type HostDeckConfigInput = {
   geminiModel?: string;
   discordWebhookUrl?: string;
   discordNotificationsEnabled?: boolean;
+  discordStatusGraphEnabled?: boolean;
   aiMonitoringEnabled?: boolean;
   smartAnalysisEnabled?: boolean;
   autoRecoveryEnabled?: boolean;
@@ -107,6 +109,8 @@ declare global {
       minimizeWindow(): Promise<void>;
       toggleMaximizeWindow(): Promise<boolean>;
       closeWindow(): Promise<void>;
+      hideToTray(): Promise<void>;
+      quitApp(): Promise<void>;
       isWindowMaximized(): Promise<boolean>;
       repairWindowsShortcuts(): Promise<{ ok: boolean; executable?: string; appUserModelId?: string; results?: Array<{ shortcut: string; ok: boolean; error?: string }> }>;
       onWindowMaximized(callback: (value: boolean) => void): () => void;

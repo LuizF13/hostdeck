@@ -300,9 +300,8 @@ function AppDetailsModal({ app, pending, onAction, onLogs, onToast, onClose }: {
   );
 }
 
-function ApplicationsPage({ data, loading, pending, onAction, onLogs, onRefresh, onToast }: { data: AppsResponse; loading: boolean; pending: Record<string, PendingAction>; onAction: (app: HostingApp, action: AppAction) => void; onLogs: (app: HostingApp) => void; onRefresh: () => void; onToast: (m: string) => void }) {
+function ApplicationsPage({ data, loading, pending, provider, onProviderChange, onAction, onLogs, onRefresh, onToast }: { data: AppsResponse; loading: boolean; pending: Record<string, PendingAction>; provider: "all" | Provider; onProviderChange: (provider: "all" | Provider) => void; onAction: (app: HostingApp, action: AppAction) => void; onLogs: (app: HostingApp) => void; onRefresh: () => void; onToast: (m: string) => void }) {
   const [query, setQuery] = useState("");
-  const [provider, setProvider] = useState<"all" | Provider>("all");
   const [selected, setSelected] = useState("");
   const filtered = useMemo(
     () => data.apps.filter((app) => (provider === "all" || app.provider === provider) && (!query.trim() || `${app.name} ${app.url || ""} ${providerName(app.provider)} ${app.description || ""}`.toLowerCase().includes(query.toLowerCase()))),
@@ -321,7 +320,7 @@ function ApplicationsPage({ data, loading, pending, onAction, onLogs, onRefresh,
     </header>
     <div className="apps-toolbar">
       <label className="search-box glass-card"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar aplicação, domínio ou provedor…" /></label>
-      <div className="provider-filter glass-card"><button className={provider === "all" ? "active" : ""} onClick={() => setProvider("all")}>Todas</button>{connectedProviders.map((item) => <button key={item.provider} className={provider === item.provider ? "active" : ""} onClick={() => setProvider(item.provider)}><ProviderMark provider={item.provider} size={16} />{PLUGIN_BY_ID.get(item.provider)?.shortName}</button>)}</div>
+      <div className="provider-filter glass-card"><button className={provider === "all" ? "active" : ""} onClick={() => onProviderChange("all")}>Todas</button>{connectedProviders.map((item) => <button key={item.provider} className={provider === item.provider ? "active" : ""} onClick={() => onProviderChange(item.provider)}><ProviderMark provider={item.provider} size={16} />{PLUGIN_BY_ID.get(item.provider)?.shortName}</button>)}</div>
     </div>
     {loading && !data.apps.length ? (
       <div className="apps-card-grid">{Array.from({ length: 6 }).map((_, i) => <div className="compact-app-card glass-card skeleton" key={i} />)}</div>
@@ -343,28 +342,139 @@ function AiInboxPage({ data, monitor, onMonitorChange, config, onOpenSettings }:
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
+  const [scope, setScope] = useState("all");
+  const feedRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+
   useEffect(() => { try { const raw = localStorage.getItem("hostdeck-ai-chat"); if (raw) setMessages(JSON.parse(raw)); } catch {} }, []);
   useEffect(() => { if (messages.length) localStorage.setItem("hostdeck-ai-chat", JSON.stringify(messages.slice(-80))); }, [messages]);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, monitor?.history?.length]);
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const node = feedRef.current;
+    if (!node) return;
+    requestAnimationFrame(() => { node.scrollTop = node.scrollHeight; });
+  }, [messages, monitor?.history?.length, sending]);
+
+  const scopedApps = useMemo(() => {
+    if (scope === "all") return data.apps;
+    if (scope.startsWith("provider:")) return data.apps.filter((app) => app.provider === scope.slice("provider:".length));
+    if (scope.startsWith("app:")) {
+      const key = scope.slice("app:".length);
+      return data.apps.filter((app) => appKey(app) === key);
+    }
+    return data.apps;
+  }, [data.apps, scope]);
+  const scopedProviders = useMemo(() => {
+    const ids = new Set(scopedApps.map((app) => app.provider));
+    return data.providers.filter((provider) => scope === "all" || ids.has(provider.provider));
+  }, [data.providers, scopedApps, scope]);
+  const scopeLabel = scope === "all"
+    ? "Toda a infraestrutura"
+    : scope.startsWith("provider:")
+      ? providerName(scope.slice("provider:".length) as Provider)
+      : scopedApps[0]?.name || "Aplicação";
+
   async function send(text?: string) {
-    const content = (text ?? input).trim(); if (!content || sending) return;
+    const content = (text ?? input).trim();
+    if (!content || sending) return;
     const user: ChatMessage = { id: randomId("u"), role: "user", content, createdAt: new Date().toISOString() };
-    const next = [...messages, user]; setMessages(next); setInput(""); setSending(true); setError("");
+    const assistantId = randomId("a");
+    const assistant: ChatMessage = { id: assistantId, role: "assistant", content: "", createdAt: new Date().toISOString() };
+    const history = [...messages, user];
+    setMessages([...history, assistant]);
+    setInput("");
+    setSending(true);
+    setError("");
+    stickToBottomRef.current = true;
     try {
-      const response = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content: value }) => ({ role, content: value })), snapshot: data, alerts: monitor?.history || [] }) });
-      const json = await response.json(); if (!response.ok) throw new Error(json.error || "Falha no Gemini");
-      setMessages((current) => [...current, { id: randomId("a"), role: "assistant", content: json.message, createdAt: new Date().toISOString() }]);
-    } catch (e) { setError(e instanceof Error ? e.message : "Falha ao conversar com o Gemini."); }
-    finally { setSending(false); }
+      const response = await fetch("/api/ai/chat?stream=1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: history.map(({ role, content: value }) => ({ role, content: value })),
+          snapshot: { apps: scopedApps, providers: scopedProviders },
+          alerts: monitor?.history || [],
+        }),
+      });
+      if (!response.ok) {
+        const json = await response.json().catch(() => ({}));
+        throw new Error(json.error || "Falha no Gemini");
+      }
+      if (!response.body) throw new Error("O Gemini não iniciou a resposta.");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let received = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() || "";
+        for (const block of blocks) {
+          for (const line of block.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            try {
+              const event = JSON.parse(line.slice(5).trim());
+              if (event.type === "delta" && typeof event.text === "string") {
+                received += event.text;
+                setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: received } : message));
+              } else if (event.type === "error") {
+                throw new Error(event.error || "Falha no stream do Gemini");
+              }
+            } catch (streamError) {
+              if (streamError instanceof SyntaxError) continue;
+              throw streamError;
+            }
+          }
+        }
+      }
+      if (!received.trim()) throw new Error("O Gemini terminou sem retornar texto.");
+    } catch (e) {
+      setMessages((current) => current.filter((message) => message.id !== assistantId || message.content.trim()));
+      setError(e instanceof Error ? e.message : "Falha ao conversar com o Gemini.");
+    } finally {
+      setSending(false);
+    }
   }
+
   async function scanNow() {
     if (window.hostDeckDesktop) { const state = await window.hostDeckDesktop.scanNow(); if (state) onMonitorChange(state); }
   }
   const alerts = monitor?.history || [];
-  return <div className="page-enter ai-page"><header className="page-header ai-page-head"><div><div className="eyebrow">Private AI workspace</div><h1>Intelligence Inbox</h1><p>Alertas automáticos entram aqui como contexto e você pode conversar com o Gemini sobre a infraestrutura.</p></div><div className="ai-head-actions"><span className={`monitor-state ${monitor?.enabled ? "on" : "off"}`}><span />{monitor?.enabled ? `Monitorando a cada ${Math.round((monitor.intervalSeconds || 120) / 60)} min${config?.autoRecoveryEnabled ? " · Auto Recovery" : ""}` : "Monitor pausado"}</span><button className="btn glass" onClick={scanNow} disabled={monitor?.running}>{monitor?.running ? <Loader2 className="spin" size={14} /> : <Activity size={14} />}Escanear agora</button></div></header>
-    <div className="ai-layout"><aside className="ai-thread-list glass-card"><div className="ai-thread-title"><Sparkles size={17} /><div><strong>HostDeck Intelligence</strong><small>Gemini + Monitor</small></div></div><button className="thread active"><span className="thread-avatar"><Bot size={17} /></span><div><strong>Infra monitor</strong><small>{alerts[0]?.headline || "Sem alertas recentes"}</small></div>{alerts.length > 0 && <b>{Math.min(alerts.length, 99)}</b>}</button><div className="thread-section-title">Atalhos</div>{["Quais apps precisam de atenção?", "Resuma as últimas mudanças", "Compare o estado dos provedores"].map((prompt) => <button className="quick-thread" key={prompt} onClick={() => send(prompt)}>{prompt}<ChevronRight size={13} /></button>)}<div className="ai-config-mini"><KeyRound size={14} /><div><strong>{config?.geminiConfigured ? "Gemini conectado" : "Gemini não configurado"}</strong><small>{config?.geminiConfigured ? config.geminiModel : "Adicione sua API key"}</small></div><button onClick={onOpenSettings}><Settings size={13} /></button></div></aside>
-      <section className="ai-chat glass-card"><header className="chat-header"><div><span className="ai-orb"><Sparkles size={18} /></span><div><strong>Conversa privada</strong><small>Contexto: {data.apps.length} apps · {data.providers.filter((p) => p.configured).length} plugins</small></div></div><span className="private-pill"><ShieldCheck size={12} />backend local</span></header><div className="chat-feed"><div className="chat-welcome"><Sparkles size={24} /><h2>Como posso ajudar com sua infraestrutura?</h2><p>Os alertas do monitor entram na conversa automaticamente. Pergunte sobre quedas, status, deploys e próximos passos.</p></div>{alerts.slice(0, 10).reverse().map((insight) => <InsightCard key={insight.id || insight.checkedAt || insight.headline} insight={insight} />)}{messages.map((message) => <div key={message.id} className={`chat-message ${message.role}`}><div className="chat-message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "Você"}</div><div><p>{message.content}</p><time>{formatDate(message.createdAt)}</time></div></div>)}{sending && <div className="chat-message assistant"><div className="chat-message-avatar"><Sparkles size={15} /></div><div className="typing"><span /><span /><span /></div></div>}{error && <div className="chat-error">{error}</div>}<div ref={endRef} /></div><form className="chat-composer" onSubmit={(e) => { e.preventDefault(); send(); }}><textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={config?.geminiConfigured ? "Pergunte ao HostDeck Intelligence…" : "Configure o Gemini nas configurações para conversar…"} disabled={!config?.geminiConfigured || sending} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} /><button type="submit" disabled={!config?.geminiConfigured || !input.trim() || sending}><Send size={16} /></button></form></section></div>
+  const connectedProviders = data.providers.filter((provider) => provider.configured);
+
+  return <div className="page-enter ai-page">
+    <header className="page-header ai-page-head">
+      <div><div className="eyebrow">Private AI workspace</div><h1>Intelligence Inbox</h1><p>O painel fica parado. Só a lista de mensagens rola, enquanto o Gemini escreve a resposta em tempo real.</p></div>
+      <div className="ai-head-actions"><span className={`monitor-state ${monitor?.enabled ? "on" : "off"}`}><span />{monitor?.enabled ? `Monitorando a cada ${Math.round((monitor.intervalSeconds || 120) / 60)} min${config?.autoRecoveryEnabled ? " · Auto Recovery" : ""}` : "Monitor pausado"}</span><button className="btn glass" onClick={scanNow} disabled={monitor?.running}>{monitor?.running ? <Loader2 className="spin" size={14} /> : <Activity size={14} />}Escanear agora</button></div>
+    </header>
+    <div className="ai-layout">
+      <aside className="ai-thread-list glass-card">
+        <div className="ai-thread-title"><Sparkles size={17} /><div><strong>Contexto do chat</strong><small>{scopeLabel}</small></div></div>
+        <button className={`thread ${scope === "all" ? "active" : ""}`} onClick={() => setScope("all")}><span className="thread-avatar"><AppWindow size={17} /></span><div><strong>Todas as aplicações</strong><small>{data.apps.length} apps no contexto</small></div></button>
+        <div className="thread-section-title">Hospedagens</div>
+        {connectedProviders.map((item) => <button className={`thread ${scope === `provider:${item.provider}` ? "active" : ""}`} key={item.provider} onClick={() => setScope(`provider:${item.provider}`)}><span className={`thread-avatar provider-${item.provider}`}><ProviderMark provider={item.provider} size={17} /></span><div><strong>{PLUGIN_BY_ID.get(item.provider)?.shortName}</strong><small>{data.apps.filter((app) => app.provider === item.provider).length} apps</small></div></button>)}
+        <div className="thread-section-title">Aplicações</div>
+        <div className="ai-app-scope-list">{data.apps.slice(0, 24).map((app) => <button className={`quick-thread scope-app ${scope === `app:${appKey(app)}` ? "active" : ""}`} key={appKey(app)} onClick={() => setScope(`app:${appKey(app)}`)}><span><ProviderMark provider={app.provider} size={13} />{app.name}</span><ChevronRight size={13} /></button>)}</div>
+        <div className="ai-config-mini"><KeyRound size={14} /><div><strong>{config?.geminiConfigured ? "Gemini conectado" : "Gemini não configurado"}</strong><small>{config?.geminiConfigured ? config.geminiModel : "Adicione sua API key"}</small></div><button onClick={onOpenSettings}><Settings size={13} /></button></div>
+      </aside>
+
+      <section className="ai-chat glass-card">
+        <header className="chat-header"><div><span className="ai-orb"><Sparkles size={18} /></span><div><strong>{scopeLabel}</strong><small>Contexto: {scopedApps.length} apps · {scopedProviders.filter((p) => p.configured).length} plugins</small></div></div><span className="private-pill"><ShieldCheck size={12} />stream privado</span></header>
+        <div className="chat-feed" ref={feedRef} onScroll={(event) => { const node = event.currentTarget; stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80; }}>
+          <div className="chat-welcome"><Sparkles size={24} /><h2>Como posso ajudar com sua infraestrutura?</h2><p>Você pode continuar digitando enquanto a resposta chega. O restante da tela não se move.</p></div>
+          {alerts.slice(0, 10).reverse().map((insight) => <InsightCard key={insight.id || insight.checkedAt || insight.headline} insight={insight} />)}
+          {messages.map((message) => <div key={message.id} className={`chat-message ${message.role}`}><div className="chat-message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "Você"}</div><div><p>{message.content || (sending && message.role === "assistant" ? " " : "")}</p><time>{formatDate(message.createdAt)}</time></div></div>)}
+          {sending && <div className="chat-stream-state"><span className="stream-dot" /><span>Gemini escrevendo…</span></div>}
+          {error && <div className="chat-error">{error}</div>}
+        </div>
+        <form className="chat-composer" onSubmit={(e) => { e.preventDefault(); send(); }}>
+          <div className="chat-input-shell"><textarea value={input} onChange={(e) => { setInput(e.target.value); e.currentTarget.style.height = "auto"; e.currentTarget.style.height = `${Math.min(150, Math.max(52, e.currentTarget.scrollHeight))}px`; }} placeholder={config?.geminiConfigured ? `Pergunte sobre ${scopeLabel.toLowerCase()}…` : "Configure o Gemini nas configurações para conversar…"} disabled={!config?.geminiConfigured} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} /><div className="composer-hint"><span>Enter envia · Shift+Enter quebra linha</span>{sending && <span className="composer-live"><span />RESPOSTA AO VIVO</span>}</div></div>
+          <button type="submit" disabled={!config?.geminiConfigured || !input.trim() || sending} title={sending ? "Aguarde a resposta atual" : "Enviar"}><Send size={16} /></button>
+        </form>
+      </section>
+    </div>
   </div>;
 }
 
@@ -457,6 +567,7 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
   const [maxRecoveryAttempts, setMaxRecoveryAttempts] = useState(2);
   const [discordUrl, setDiscordUrl] = useState("");
   const [discordEnabled, setDiscordEnabled] = useState(true);
+  const [discordStatusGraph, setDiscordStatusGraph] = useState(true);
   const [automaticUpdates, setAutomaticUpdates] = useState(true);
   const [automaticDownload, setAutomaticDownload] = useState(true);
   const [updateCheckMinutes, setUpdateCheckMinutes] = useState(30);
@@ -480,6 +591,7 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
     setRecoveryCooldown(config.recoveryCooldownMinutes || 15);
     setMaxRecoveryAttempts(config.maxRecoveryAttemptsPerHour || 2);
     setDiscordEnabled(config.discordNotificationsEnabled !== false);
+    setDiscordStatusGraph(config.discordStatusGraphEnabled !== false);
     setAutomaticUpdates(config.automaticUpdatesEnabled !== false);
     setAutomaticDownload(config.automaticUpdateDownload !== false);
     setUpdateCheckMinutes(config.updateCheckMinutes || 30);
@@ -520,7 +632,7 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
     setSaving(true);
     setMessage("");
     try {
-      const next = await desktop.saveConfig({ discordWebhookUrl: discordUrl, discordNotificationsEnabled: discordEnabled });
+      const next = await desktop.saveConfig({ discordWebhookUrl: discordUrl, discordNotificationsEnabled: discordEnabled, discordStatusGraphEnabled: discordStatusGraph });
       setConfig(next);
       setDiscordUrl("");
       setMessage("Configuração do Discord salva.");
@@ -647,7 +759,7 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
             <div className="settings-section-head"><div><div className="eyebrow">Notifications</div><h2>Discord Webhook</h2><p>Envie apenas alertas relevantes para um canal do Discord, com severidade, aplicação afetada e recomendações.</p></div><span className={`config-state ${config?.discordConfigured ? "ok" : "off"}`}>{config?.discordConfigured ? "Webhook salvo" : "Não configurado"}</span></div>
             <div className="settings-form">
               <label className="settings-field"><span>Webhook URL</span><input type="password" value={discordUrl} onChange={(e) => setDiscordUrl(e.target.value)} placeholder={config?.discordConfigured ? "•••••••• webhook salvo ••••••••" : "https://discord.com/api/webhooks/..."} /></label>
-              <label className="toggle-setting"><div><Webhook size={18} /><span><strong>Enviar alertas ao Discord</strong><small>Usa o mesmo resumo do Intelligence Inbox e respeita o cooldown de notificações.</small></span></div><input type="checkbox" checked={discordEnabled} onChange={(e) => setDiscordEnabled(e.target.checked)} /></label>
+              <label className="toggle-setting"><div><Webhook size={18} /><span><strong>Enviar alertas ao Discord</strong><small>Usa o mesmo resumo do Intelligence Inbox e respeita o cooldown de notificações.</small></span></div><input type="checkbox" checked={discordEnabled} onChange={(e) => setDiscordEnabled(e.target.checked)} /></label><label className="toggle-setting"><div><Activity size={18} /><span><strong>Gráfico de status no Discord</strong><small>Inclui barras de Online, Offline, Build, Pausado e Erro, além do resumo por hospedagem.</small></span></div><input type="checkbox" checked={discordStatusGraph} onChange={(e) => setDiscordStatusGraph(e.target.checked)} disabled={!discordEnabled} /></label>
               <div className="settings-actions"><button className="btn glass" onClick={testDiscord} disabled={!desktop || saving || !config?.discordConfigured}>Enviar teste</button><button className="btn primary" onClick={saveDiscord} disabled={!desktop || saving}>{saving ? <Loader2 className="spin" size={16} /> : <Check size={16} />}Salvar webhook</button></div>
             </div>
           </>}
@@ -667,7 +779,7 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
               <label className="toggle-setting"><div><Activity size={18} /><span><strong>Continuar em segundo plano ao fechar</strong><small>O X esconde a janela na bandeja, mantendo monitoramento e atualizações ativos. Para encerrar completamente, use “Sair do HostDeck” no ícone da bandeja.</small></span></div><input type="checkbox" checked={backgroundMode} onChange={(e) => setBackgroundMode(e.target.checked)} /></label>
               <label className="toggle-setting"><div><Monitor size={18} /><span><strong>Iniciar com o Windows</strong><small>Abre o HostDeck automaticamente no login. Com o modo em segundo plano, ele pode verificar atualizações sem você abrir a janela.</small></span></div><input type="checkbox" checked={launchAtLogin} onChange={(e) => setLaunchAtLogin(e.target.checked)} /></label>
               <label className="settings-field compact"><span>Intervalo de verificação</span><select value={updateCheckMinutes} onChange={(e) => setUpdateCheckMinutes(Number(e.target.value))} disabled={!automaticUpdates}><option value={10}>10 minutos</option><option value={30}>30 minutos</option><option value={60}>1 hora</option><option value={180}>3 horas</option><option value={360}>6 horas</option></select><small>Evita consultas excessivas ao GitHub.</small></label>
-              <div className="update-background-note"><ShieldCheck size={18} /><div><strong>Aplicativo realmente encerrado</strong><p>Se o processo estiver totalmente fechado, ele não consegue verificar uma release nova. Para ter comportamento “fechado”, mantenha o modo em segundo plano ativado: a janela some, mas o agente continua na bandeja.</p></div></div>
+              <div className="update-background-note"><ShieldCheck size={18} /><div><strong>Aplicativo realmente encerrado</strong><p>Se o processo estiver totalmente fechado, ele não consegue verificar uma release nova. Para ter comportamento “fechado”, mantenha o modo em segundo plano ativado: a janela some, mas o agente continua na bandeja.</p></div></div><div className="desktop-lifecycle-actions"><button className="btn glass" onClick={() => desktop?.hideToTray?.()} disabled={!desktop}><Minimize2 size={15} />Ocultar na bandeja agora</button><button className="btn danger-ghost" onClick={() => desktop?.quitApp?.()} disabled={!desktop}><X size={15} />Encerrar HostDeck completamente</button></div>
               <button className="btn primary settings-save" onClick={saveUpdates} disabled={!desktop || saving}>{saving ? <Loader2 className="spin" size={16} /> : <Check size={16} />}Salvar atualizações</button>
             </div>
             <div className="update-panel"><span className="update-icon"><Download size={24} /></span><div><strong>HostDeck Desktop</strong><p>Verifique, baixe e instale a versão mais recente sem sair do app.</p></div><UpdateButton /></div><div className="windows-integration-card"><div><strong>Integração com o Windows</strong><p>Recria os atalhos da Área de Trabalho e Menu Iniciar apontando para o HostDeck.exe instalado, com o AppUserModelID e o ícone corretos.</p></div><button className="btn glass" onClick={repairWindowsShortcuts} disabled={!desktop || saving}><RefreshCw size={15} />Reparar atalhos</button></div><UpdateDetailsPanel />
@@ -682,15 +794,21 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
 }
 
 function LogsModal({ app, onClose }: { app: HostingApp; onClose: () => void }) {
-  const [logs, setLogs] = useState("Carregando logs…"); const [loading, setLoading] = useState(true); const [live, setLive] = useState(false); const [error, setError] = useState(""); const eventRef = useRef<EventSource | null>(null);
+  const [logs, setLogs] = useState("Carregando logs…");
+  const [loading, setLoading] = useState(true);
+  const [live, setLive] = useState(false);
+  const [error, setError] = useState("");
+  const [mounted, setMounted] = useState(false);
+  const eventRef = useRef<EventSource | null>(null);
   const load = useCallback(async () => { setLoading(true); setError(""); try { const r = await fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/logs`, { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw new Error(j.error || "Falha ao buscar logs"); setLogs(j.logs || "Sem logs."); } catch (e) { setError(e instanceof Error ? e.message : "Falha ao buscar logs"); } finally { setLoading(false); } }, [app.provider, app.id]);
-  useEffect(() => { load(); return () => eventRef.current?.close(); }, [load]);
+  useEffect(() => { setMounted(true); load(); return () => eventRef.current?.close(); }, [load]);
   function liveStart() { if (app.provider !== "square") return; eventRef.current?.close(); const es = new EventSource(`/api/apps/square/${encodeURIComponent(app.id)}/realtime`); eventRef.current = es; setLive(true); es.onmessage = (event) => setLogs((prev) => `${prev}\n${event.data}`.trim()); es.addEventListener("logs", (event) => { const raw = String((event as MessageEvent).data || ""); const first = raw.charCodeAt(0); setLogs((prev) => `${prev}\n${first === 2 ? "[stderr] " : ""}${first === 1 || first === 2 ? raw.slice(1) : raw}`.trim()); }); es.onerror = () => { setLive(false); es.close(); }; }
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="logs-modal glass-modal" onMouseDown={(e) => e.stopPropagation()}><header><div className="log-app"><AppArtwork app={app} /><div><ProviderBadge provider={app.provider} /><h2>{app.name}</h2></div></div><div className="modal-actions">{app.provider === "square" && <button className="btn glass" onClick={liveStart} disabled={live}><Activity size={14} />{live ? "Ao vivo" : "Live"}</button>}<button className="btn glass" onClick={load} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} />Atualizar</button><button className="close-btn" onClick={onClose}><X size={17} /></button></div></header>{error && <div className="settings-error logs-error">{error}</div>}<pre>{logs}</pre><footer><span>{live ? "STREAM CONECTADO" : "SNAPSHOT"}</span><span>{providerName(app.provider)}</span></footer></section></div>;
+  if (!mounted) return null;
+  return createPortal(<div className="modal-backdrop logs-backdrop" onMouseDown={onClose}><section className="logs-modal glass-modal" onMouseDown={(e) => e.stopPropagation()}><header><div className="log-app"><AppArtwork app={app} /><div><ProviderBadge provider={app.provider} /><h2>{app.name}</h2></div></div><div className="modal-actions">{app.provider === "square" && <button className="btn glass" onClick={liveStart} disabled={live}><Activity size={14} />{live ? "Ao vivo" : "Live"}</button>}<button className="btn glass" onClick={load} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} />Atualizar</button><button className="close-btn" onClick={onClose}><X size={17} /></button></div></header>{error && <div className="settings-error logs-error">{error}</div>}<pre>{logs}</pre><footer><span>{live ? "STREAM CONECTADO" : "SNAPSHOT"}</span><span>{providerName(app.provider)}</span></footer></section></div>, document.body);
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState<AppsResponse>({ apps: [], providers: [], fetchedAt: 0 }); const [loading, setLoading] = useState(true); const [page, setPage] = useState<Page>("overview"); const [settingsTab, setSettingsTab] = useState<SettingsTab>("plugins"); const [theme, setTheme] = useState<ThemeChoice>("system"); const [desktop, setDesktop] = useState(false); const [config, setConfig] = useState<DesktopConfigStatus | null>(null); const [monitor, setMonitor] = useState<MonitorState | null>(null); const [unread, setUnread] = useState(0); const [flyout, setFlyout] = useState<Insight | null>(null); const [logsApp, setLogsApp] = useState<HostingApp | null>(null); const [pending, setPending] = useState<Record<string, PendingAction>>({}); const [toast, setToast] = useState(""); const flyoutTimer = useRef<number | null>(null);
+  const [data, setData] = useState<AppsResponse>({ apps: [], providers: [], fetchedAt: 0 }); const [loading, setLoading] = useState(true); const [page, setPage] = useState<Page>("overview"); const [appsProvider, setAppsProvider] = useState<"all" | Provider>("all"); const [settingsTab, setSettingsTab] = useState<SettingsTab>("plugins"); const [theme, setTheme] = useState<ThemeChoice>("system"); const [desktop, setDesktop] = useState(false); const [config, setConfig] = useState<DesktopConfigStatus | null>(null); const [monitor, setMonitor] = useState<MonitorState | null>(null); const [unread, setUnread] = useState(0); const [flyout, setFlyout] = useState<Insight | null>(null); const [logsApp, setLogsApp] = useState<HostingApp | null>(null); const [pending, setPending] = useState<Record<string, PendingAction>>({}); const [toast, setToast] = useState(""); const flyoutTimer = useRef<number | null>(null);
 
   useEffect(() => {
     setDesktop(Boolean(window.hostDeckDesktop));
@@ -762,5 +880,5 @@ export default function Dashboard() {
   const providerCounts = useMemo(() => new Map(HOSTING_PLUGINS.map((plugin) => [plugin.id, data.apps.filter((app) => app.provider === plugin.id).length])), [data.apps]);
   const connected = data.providers.filter((p) => p.configured);
 
-  return <div className={desktop ? "desktop-app" : "browser-app"}><WindowChrome /><main className="shell"><aside className="sidebar glass-sidebar"><div className="brand"><BrandMark size={40} /><div><strong>Host<span>Deck</span></strong><small>Infrastructure OS</small></div></div><div className="sidebar-label">Workspace</div><nav><NavButton active={page === "overview"} icon={<LayoutDashboard size={18} />} label="Visão geral" onClick={() => go("overview")} /><NavButton active={page === "apps"} icon={<AppWindow size={18} />} label="Aplicações" badge={data.apps.length} onClick={() => go("apps")} /><NavButton active={page === "ai"} icon={<Sparkles size={18} />} label="Inteligência" dangerBadge={unread} onClick={() => go("ai")} /></nav>{connected.length > 0 && <><div className="sidebar-label">Hospedagens</div><nav className="provider-nav">{connected.map((item) => <button key={item.provider} className="nav-item provider-shortcut" onClick={() => go("apps")}><span className={`nav-icon provider-${item.provider}`}><ProviderMark provider={item.provider} size={16} /></span><span>{PLUGIN_BY_ID.get(item.provider)?.shortName}</span><b>{providerCounts.get(item.provider) || 0}</b></button>)}</nav></>}<div className="sidebar-label">Sistema</div><nav><NavButton active={page === "settings"} icon={<Settings size={18} />} label="Configurações" onClick={() => openSettings("plugins")} /></nav><div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={15} /><span>Secrets protegidos no backend local</span></div><div className="local-badge"><span />LOCAL CONTROL PLANE</div></div></aside><section className="content"><header className="global-topbar"><div className="global-context"><span>{page === "overview" ? "Dashboard" : page === "apps" ? "Aplicações" : page === "ai" ? "Intelligence Inbox" : "Configurações"}</span><small>HostDeck Workspace</small></div><div className="global-actions"><ThemeControl value={theme} onChange={setTheme} /><UpdateButton /><button className="top-icon-btn" onClick={() => openSettings("plugins")} title="Configurações"><Settings size={16} /></button></div></header>{page === "overview" && <OverviewPage data={data} monitor={monitor} onOpenApps={() => go("apps")} onOpenAi={() => go("ai")} onOpenSettings={() => openSettings("plugins")} />}{page === "apps" && <ApplicationsPage data={data} loading={loading} pending={pending} onAction={runAction} onLogs={setLogsApp} onRefresh={() => loadApps()} onToast={setToast} />}{page === "ai" && <AiInboxPage data={data} monitor={monitor} onMonitorChange={setMonitor} config={config} onOpenSettings={() => openSettings("ai")} />}{page === "settings" && <SettingsPage key={settingsTab} theme={theme} onThemeChange={setTheme} config={config} setConfig={setConfig} data={data} initialTab={settingsTab} />}</section></main>{logsApp && <LogsModal app={logsApp} onClose={() => setLogsApp(null)} />}{flyout && <div role="button" tabIndex={0} className={`alert-flyout glass-card ${flyout.severity}`} onClick={() => { setFlyout(null); go("ai"); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setFlyout(null); go("ai"); } }}><span className="alert-flyout-icon"><BellRing size={17} /></span><div><small>Novo alerta · Intelligence</small><strong>{flyout.headline}</strong><p>{flyout.summary}</p><span>Abrir conversa <ChevronRight size={13} /></span></div><button className="flyout-close" onClick={(e) => { e.stopPropagation(); setFlyout(null); }}><X size={13} /></button></div>}{toast && <div className="toast glass-card">{toast}</div>}</div>;
+  return <div className={desktop ? "desktop-app" : "browser-app"}><WindowChrome /><main className="shell"><aside className="sidebar glass-sidebar"><div className="brand"><BrandMark size={40} /><div><strong>Host<span>Deck</span></strong><small>Infrastructure OS</small></div></div><div className="sidebar-label">Workspace</div><nav><NavButton active={page === "overview"} icon={<LayoutDashboard size={18} />} label="Visão geral" onClick={() => go("overview")} /><NavButton active={page === "apps" && appsProvider === "all"} icon={<AppWindow size={18} />} label="Aplicações" badge={data.apps.length} onClick={() => { setAppsProvider("all"); go("apps"); }} /><NavButton active={page === "ai"} icon={<Sparkles size={18} />} label="Inteligência" dangerBadge={unread} onClick={() => go("ai")} /></nav>{connected.length > 0 && <><div className="sidebar-label">Hospedagens</div><nav className="provider-nav">{connected.map((item) => <button key={item.provider} className={`nav-item provider-shortcut ${page === "apps" && appsProvider === item.provider ? "active" : ""}`} onClick={() => { setAppsProvider(item.provider); go("apps"); }}><span className={`nav-icon provider-${item.provider}`}><ProviderMark provider={item.provider} size={16} /></span><span>{PLUGIN_BY_ID.get(item.provider)?.shortName}</span><b>{providerCounts.get(item.provider) || 0}</b></button>)}</nav></>}<div className="sidebar-label">Sistema</div><nav><NavButton active={page === "settings"} icon={<Settings size={18} />} label="Configurações" onClick={() => openSettings("plugins")} /></nav><div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={15} /><span>Secrets protegidos no backend local</span></div><div className="local-badge"><span />LOCAL CONTROL PLANE</div></div></aside><section className="content"><header className="global-topbar"><div className="global-context"><span>{page === "overview" ? "Dashboard" : page === "apps" ? "Aplicações" : page === "ai" ? "Intelligence Inbox" : "Configurações"}</span><small>HostDeck Workspace</small></div><div className="global-actions"><ThemeControl value={theme} onChange={setTheme} /><UpdateButton /><button className="top-icon-btn" onClick={() => openSettings("plugins")} title="Configurações"><Settings size={16} /></button></div></header>{page === "overview" && <OverviewPage data={data} monitor={monitor} onOpenApps={() => go("apps")} onOpenAi={() => go("ai")} onOpenSettings={() => openSettings("plugins")} />}{page === "apps" && <ApplicationsPage data={data} loading={loading} pending={pending} provider={appsProvider} onProviderChange={setAppsProvider} onAction={runAction} onLogs={setLogsApp} onRefresh={() => loadApps()} onToast={setToast} />}{page === "ai" && <AiInboxPage data={data} monitor={monitor} onMonitorChange={setMonitor} config={config} onOpenSettings={() => openSettings("ai")} />}{page === "settings" && <SettingsPage key={settingsTab} theme={theme} onThemeChange={setTheme} config={config} setConfig={setConfig} data={data} initialTab={settingsTab} />}</section></main>{logsApp && <LogsModal app={logsApp} onClose={() => setLogsApp(null)} />}{flyout && <div role="button" tabIndex={0} className={`alert-flyout glass-card ${flyout.severity}`} onClick={() => { setFlyout(null); go("ai"); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setFlyout(null); go("ai"); } }}><span className="alert-flyout-icon"><BellRing size={17} /></span><div><small>Novo alerta · Intelligence</small><strong>{flyout.headline}</strong><p>{flyout.summary}</p><span>Abrir conversa <ChevronRight size={13} /></span></div><button className="flyout-close" onClick={(e) => { e.stopPropagation(); setFlyout(null); }}><X size={13} /></button></div>}{toast && <div className="toast glass-card">{toast}</div>}</div>;
 }

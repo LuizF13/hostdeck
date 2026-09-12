@@ -340,6 +340,7 @@ function getPreferences() {
     recoveryCooldownMinutes: clampNumber(saved.recoveryCooldownMinutes, 5, 180, DEFAULT_RECOVERY_COOLDOWN_MINUTES),
     maxRecoveryAttemptsPerHour: clampNumber(saved.maxRecoveryAttemptsPerHour, 1, 5, DEFAULT_MAX_RECOVERY_ATTEMPTS_PER_HOUR),
     discordNotificationsEnabled: saved.discordNotificationsEnabled !== false,
+    discordStatusGraphEnabled: saved.discordStatusGraphEnabled !== false,
     automaticUpdatesEnabled: saved.automaticUpdatesEnabled !== false,
     automaticUpdateDownload: saved.automaticUpdateDownload !== false,
     updateCheckMinutes: clampNumber(saved.updateCheckMinutes, 10, 360, DEFAULT_UPDATE_CHECK_MINUTES),
@@ -351,7 +352,7 @@ function getPreferences() {
 function savePreferences(patch = {}) {
   const current = getPreferences();
   const next = { ...current };
-  for (const key of ["aiMonitoringEnabled", "smartAnalysisEnabled", "autoRecoveryEnabled", "notifyInfoChanges", "discordNotificationsEnabled", "automaticUpdatesEnabled", "automaticUpdateDownload", "backgroundModeEnabled", "launchAtLogin"]) {
+  for (const key of ["aiMonitoringEnabled", "smartAnalysisEnabled", "autoRecoveryEnabled", "notifyInfoChanges", "discordNotificationsEnabled", "discordStatusGraphEnabled", "automaticUpdatesEnabled", "automaticUpdateDownload", "backgroundModeEnabled", "launchAtLogin"]) {
     if (typeof patch[key] === "boolean") next[key] = patch[key];
   }
   if (patch.monitorIntervalSeconds != null) next.monitorIntervalSeconds = clampNumber(patch.monitorIntervalSeconds, 60, 3600, DEFAULT_MONITOR_SECONDS);
@@ -384,6 +385,7 @@ function configStatus() {
     geminiModel: env.GEMINI_MODEL || "gemini-3.8-flash",
     discordConfigured: Boolean(env.DISCORD_WEBHOOK_URL),
     discordNotificationsEnabled: prefs.discordNotificationsEnabled,
+    discordStatusGraphEnabled: prefs.discordStatusGraphEnabled,
     plugins,
     aiMonitoringEnabled: prefs.aiMonitoringEnabled,
     smartAnalysisEnabled: prefs.smartAnalysisEnabled,
@@ -473,6 +475,7 @@ function saveCredentials(input = {}) {
     recoveryCooldownMinutes: input.recoveryCooldownMinutes,
     maxRecoveryAttemptsPerHour: input.maxRecoveryAttemptsPerHour,
     discordNotificationsEnabled: input.discordNotificationsEnabled,
+    discordStatusGraphEnabled: input.discordStatusGraphEnabled,
     automaticUpdatesEnabled: input.automaticUpdatesEnabled,
     automaticUpdateDownload: input.automaticUpdateDownload,
     updateCheckMinutes: input.updateCheckMinutes,
@@ -1147,12 +1150,38 @@ function geminiSummaryAllowed(prefs) {
   return !lastGeminiAnalyzeAt || Date.now() - lastGeminiAnalyzeAt >= prefs.geminiCooldownMinutes * 60 * 1000;
 }
 
+function discordStatusFields(snapshot) {
+  const apps = Array.isArray(snapshot?.apps) ? snapshot.apps : [];
+  if (!apps.length) return [];
+  const statuses = ["online", "building", "paused", "offline", "error", "unknown"];
+  const labels = { online: "Online", building: "Build", paused: "Pausado", offline: "Offline", error: "Erro", unknown: "Indef." };
+  const icons = { online: "🟢", building: "🔵", paused: "🟡", offline: "⚫", error: "🔴", unknown: "⚪" };
+  const graph = statuses.map((status) => {
+    const count = apps.filter((app) => app.status === status).length;
+    const width = count ? Math.max(1, Math.round((count / apps.length) * 12)) : 0;
+    return `${icons[status]} ${String(labels[status]).padEnd(7)} ${"█".repeat(width)}${"░".repeat(12 - width)} ${count}`;
+  }).join("\n");
+  const byProvider = new Map();
+  for (const appItem of apps) {
+    const current = byProvider.get(appItem.provider) || { total: 0, online: 0 };
+    current.total += 1;
+    if (appItem.status === "online") current.online += 1;
+    byProvider.set(appItem.provider, current);
+  }
+  const providers = [...byProvider.entries()].map(([name, value]) => `• ${name}: ${value.online}/${value.total} online`).join("\n");
+  return [
+    { name: `Status geral · ${apps.length} apps`, value: `\`\`\`text\n${graph}\n\`\`\``, inline: false },
+    { name: "Hospedagens", value: providers.slice(0, 1000), inline: false },
+  ];
+}
+
 async function sendDiscordInsight(record) {
   const env = credentialsEnv();
   const prefs = getPreferences();
   if (!prefs.discordNotificationsEnabled || !env.DISCORD_WEBHOOK_URL) return;
   const color = record.severity === "critical" ? 15548997 : record.severity === "warning" ? 16753920 : record.severity === "healthy" ? 5763719 : 5793266;
   const fields = [];
+  if (prefs.discordStatusGraphEnabled) fields.push(...discordStatusFields(previousSnapshot));
   if (record.affectedApps?.length) fields.push({ name: "Aplicações", value: record.affectedApps.slice(0, 8).join(", "), inline: false });
   if (record.changes?.length) fields.push({ name: "Mudanças", value: record.changes.slice(0, 5).map((item) => `• ${item}`).join("\n").slice(0, 1000), inline: false });
   if (record.recommendations?.length) fields.push({ name: "Recomendações", value: record.recommendations.slice(0, 4).map((item, i) => `${i + 1}. ${item}`).join("\n").slice(0, 1000), inline: false });
@@ -1169,7 +1198,7 @@ async function sendDiscordInsight(record) {
           title: record.headline || "HostDeck Intelligence",
           description: String(record.summary || "Alteração detectada.").slice(0, 3500),
           color,
-          fields,
+          fields: fields.slice(0, 20),
           footer: { text: `HostDeck • ${record.source === "gemini" ? "Gemini" : "Monitor local"}` },
           timestamp: record.checkedAt || new Date().toISOString(),
         }],
@@ -1384,6 +1413,8 @@ function registerIpc() {
     return mainWindow.isMaximized();
   });
   ipcMain.handle("window:close", () => mainWindow?.close());
+  ipcMain.handle("window:hide-to-tray", () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide(); });
+  ipcMain.handle("app:quit", () => { isQuitting = true; app.quit(); });
   ipcMain.handle("window:is-maximized", () => Boolean(mainWindow?.isMaximized()));
   ipcMain.handle("windows:repair-shortcuts", () => repairWindowsShortcuts());
 
