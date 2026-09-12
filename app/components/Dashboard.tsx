@@ -100,14 +100,12 @@ function StatusPill({ status }: { status: HostingApp["status"] }) {
 }
 
 function AppArtwork({ app, large = false }: { app: HostingApp; large?: boolean }) {
-  const fallbackLogo = useMediaUrl("app");
+  const localLogo = useMediaUrl("app");
   const [failed, setFailed] = useState(false);
-  const directLogo = app.logoUrl || "";
-  const [source, setSource] = useState(directLogo || fallbackLogo);
-  useEffect(() => { setFailed(false); setSource(directLogo || fallbackLogo); }, [directLogo, fallbackLogo]);
+  useEffect(() => { setFailed(false); }, [localLogo]);
   return (
     <div className={`app-artwork ${large ? "large" : ""}`}>
-      {!failed ? <img src={source} alt="" onError={() => { if (source !== fallbackLogo) setSource(fallbackLogo); else setFailed(true); }} /> : <div className="art-fallback"><AppWindow size={large ? 28 : 20} /></div>}
+      {!failed ? <img src={localLogo} alt="" onError={() => setFailed(true)} /> : <div className="art-fallback"><AppWindow size={large ? 28 : 20} /></div>}
       <span className={`art-provider provider-${app.provider}`}><ProviderMark provider={app.provider} size={large ? 17 : 13} /></span>
     </div>
   );
@@ -658,7 +656,7 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
             <div className="settings-section-head"><div><div className="eyebrow">Appearance</div><h2>Tema e interface</h2><p>Glassmorphism adaptativo com Dark, Light ou sincronização automática com o sistema.</p></div></div>
             <div className="theme-showcase"><button className={theme === "system" ? "active" : ""} onClick={() => onThemeChange("system")}><Monitor size={24} /><strong>Sistema</strong><span>Segue o Windows/macOS/Linux</span></button><button className={theme === "dark" ? "active" : ""} onClick={() => onThemeChange("dark")}><Moon size={24} /><strong>Dark</strong><span>Contraste focado em operação</span></button><button className={theme === "light" ? "active" : ""} onClick={() => onThemeChange("light")}><Sun size={24} /><strong>Light</strong><span>Interface clara e suave</span></button></div>
             <div className="settings-section-head media-settings-head"><div><div className="eyebrow">Local media</div><h2>Banner e logo por arquivo</h2><p>As imagens ficam gravadas no armazenamento local do HostDeck e continuam disponíveis depois de reiniciar ou atualizar o aplicativo. Nenhum link externo é necessário.</p></div></div>
-            <div className="media-settings-grid"><MediaUploadCard kind="banner" title="Banner do dashboard" description="Imagem de fundo usada no resumo e nos detalhes das aplicações." /><MediaUploadCard kind="app" title="Logo padrão das aplicações" description="Usado quando o provedor não fornece uma logo própria para a aplicação." /></div>
+            <div className="media-settings-grid"><MediaUploadCard kind="banner" title="Banner do dashboard" description="Envie o arquivo do banner aqui. Não use link externo; a imagem fica salva localmente no HostDeck." /><MediaUploadCard kind="app" title="Logo padrão das aplicações" description="Envie o arquivo da logo aqui. Não use link externo; a imagem fica salva localmente no HostDeck." /></div>
           </>}
 
           {tab === "updates" && <>
