@@ -3,9 +3,9 @@
 import {
   Activity, AppWindow, BellRing, Bot, Box, Check, ChevronRight, CircleAlert, CirclePause,
   CirclePlay, Cloud, Copy, Cpu, Download, ExternalLink, Globe2, HardDrive, Info, KeyRound,
-  Layers3, LayoutDashboard, Loader2, Maximize2, MemoryStick, MessageSquare, Minimize2, Monitor,
+  FileCode2, FolderOpen, Layers3, LayoutDashboard, Loader2, Maximize2, MemoryStick, MessageSquare, Minimize2, Monitor,
   MonitorCog, Moon, Pause, Play, Plug, RefreshCw, RotateCcw, Search, Send, Settings, ShieldCheck,
-  Sparkles, SquareTerminal, Sun, Trash2, Upload, Webhook, X, Zap,
+  Save, Sparkles, SquareTerminal, Sun, Trash2, Upload, Webhook, X, Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -233,7 +233,7 @@ function ActionButtons({ app, pending, onAction }: { app: HostingApp; pending?: 
   return <div className="action-group">{app.actions.map((action) => <button key={action} className={`btn action action-${action}`} disabled={Boolean(pending)} onClick={() => onAction(app, action)}>{pending?.action === action ? <Loader2 className="spin" size={14} /> : action === "restart" ? <RotateCcw size={14} /> : ["start", "resume"].includes(action) ? <Play size={14} /> : <Pause size={14} />}{pending?.action === action ? BUSY_LABEL[action] : ACTION_LABEL[action]}</button>)}</div>;
 }
 
-function AppExpanded({ app, pending, onAction, onLogs, onToast }: { app: HostingApp; pending?: PendingAction; onAction: (app: HostingApp, action: AppAction) => void; onLogs: () => void; onToast: (m: string) => void }) {
+function AppExpanded({ app, pending, onAction, onLogs, onWorkspace, onToast }: { app: HostingApp; pending?: PendingAction; onAction: (app: HostingApp, action: AppAction) => void; onLogs: () => void; onWorkspace: () => void; onToast: (m: string) => void }) {
   const bannerUrl = useMediaUrl("banner");
   const [details, setDetails] = useState<Partial<HostingApp>>({});
   const [loading, setLoading] = useState(false);
@@ -262,13 +262,13 @@ function AppExpanded({ app, pending, onAction, onLogs, onToast }: { app: Hosting
   return <section key={appKey(app)} className="app-expanded glass-card detail-enter">
     <div className="app-expanded-banner"><img src={bannerUrl} alt="" /><div className="expanded-banner-overlay" /><div className="expanded-head"><AppArtwork app={view} large /><div className="expanded-identity"><ProviderBadge provider={view.provider} /><h2>{view.name}</h2><p>{view.description || `Aplicação gerenciada pelo plugin ${providerName(view.provider)}.`}</p></div><StatusPill status={view.status} /></div></div>
     {pending && <div className="operation-banner"><Loader2 className="spin" size={16} /><div><strong>{BUSY_LABEL[pending.action]}</strong><span>Os controles serão liberados depois que o provedor confirmar o estado.</span></div></div>}
-    <div className="expanded-toolbar"><div className="action-group"><button className="btn glass" onClick={onLogs}><SquareTerminal size={15} />Logs</button>{view.url && <a className="btn glass" href={view.url} target="_blank" rel="noreferrer"><ExternalLink size={15} />Abrir</a>}</div><ActionButtons app={view} pending={pending} onAction={onAction} /></div>
+    <div className="expanded-toolbar"><div className="action-group"><button className="btn glass" onClick={onLogs}><SquareTerminal size={15} />Logs</button>{["discloud", "nextcloud"].includes(view.provider) && <button className="btn glass workspace-launch" onClick={onWorkspace}><FileCode2 size={15} />Workspace</button>}{view.url && <a className="btn glass" href={view.url} target="_blank" rel="noreferrer"><ExternalLink size={15} />Abrir</a>}</div><ActionButtons app={view} pending={pending} onAction={onAction} /></div>
     <div className="expanded-grid"><div className="metric-tile"><span>Status</span><strong>{statusLabel(view.status)}</strong><small>{providerName(view.provider)}</small></div><div className="metric-tile"><span>CPU</span><strong>{view.cpu || "—"}</strong><small>uso atual</small></div><div className="metric-tile"><span>Memória</span><strong>{view.ram || "—"}</strong><small>uso atual</small></div><div className="metric-tile"><span>Uptime</span><strong>{formatUptime(view.uptime)}</strong><small>{loading ? "consultando…" : "tempo online"}</small></div></div>
     <div className="expanded-sections"><section><header><Globe2 size={15} />Endereço</header>{view.url ? <div className="property-row"><span className="truncate">{view.url}</span><button onClick={() => copy(view.url)}><Copy size={13} /></button></div> : <div className="empty-property">Nenhum domínio público informado.</div>}<div className="property-row"><span>Provider</span><strong>{providerName(view.provider)}</strong></div><div className="property-row"><span>Região/cluster</span><strong>{view.region || view.cluster || "—"}</strong></div></section><section><header><MonitorCog size={15} />Deploy & runtime</header><div className="property-row"><span>Stack</span><strong>{view.language || "—"}</strong></div><div className="property-row"><span>Deployment</span><strong>{view.latestDeploymentState || "—"}</strong></div><div className="property-row"><span>Atualizado</span><strong>{formatDate(view.updatedAt)}</strong></div></section><section><header><Info size={15} />Identificação</header><div className="property-row"><span className="truncate">{view.id}</span><button onClick={() => copy(view.id)}><Copy size={13} /></button></div><div className="property-row"><span>Storage</span><strong>{view.storage || "—"}</strong></div><div className="property-row"><span>Rede</span><strong>{view.network || "—"}</strong></div></section></div>
   </section>;
 }
 
-function AppDetailsModal({ app, pending, onAction, onLogs, onToast, onClose }: { app: HostingApp; pending?: PendingAction; onAction: (app: HostingApp, action: AppAction) => void; onLogs: () => void; onToast: (m: string) => void; onClose: () => void }) {
+function AppDetailsModal({ app, pending, onAction, onLogs, onWorkspace, onToast, onClose }: { app: HostingApp; pending?: PendingAction; onAction: (app: HostingApp, action: AppAction) => void; onLogs: () => void; onWorkspace: () => void; onToast: (m: string) => void; onClose: () => void }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -292,7 +292,7 @@ function AppDetailsModal({ app, pending, onAction, onLogs, onToast, onClose }: {
       <div className="app-details-modal" role="dialog" aria-modal="true" aria-label={`Detalhes de ${app.name}`} onMouseDown={(event) => event.stopPropagation()}>
         <button className="app-modal-close" onClick={onClose} title="Fechar detalhes" aria-label="Fechar detalhes"><X size={18} /></button>
         <div className="app-details-scroll">
-          <AppExpanded app={app} pending={pending} onAction={onAction} onLogs={onLogs} onToast={onToast} />
+          <AppExpanded app={app} pending={pending} onAction={onAction} onLogs={onLogs} onWorkspace={onWorkspace} onToast={onToast} />
         </div>
       </div>
     </div>,
@@ -300,7 +300,7 @@ function AppDetailsModal({ app, pending, onAction, onLogs, onToast, onClose }: {
   );
 }
 
-function ApplicationsPage({ data, loading, pending, provider, onProviderChange, onAction, onLogs, onRefresh, onToast }: { data: AppsResponse; loading: boolean; pending: Record<string, PendingAction>; provider: "all" | Provider; onProviderChange: (provider: "all" | Provider) => void; onAction: (app: HostingApp, action: AppAction) => void; onLogs: (app: HostingApp) => void; onRefresh: () => void; onToast: (m: string) => void }) {
+function ApplicationsPage({ data, loading, pending, provider, onProviderChange, onAction, onLogs, onWorkspace, onRefresh, onToast }: { data: AppsResponse; loading: boolean; pending: Record<string, PendingAction>; provider: "all" | Provider; onProviderChange: (provider: "all" | Provider) => void; onAction: (app: HostingApp, action: AppAction) => void; onLogs: (app: HostingApp) => void; onWorkspace: (app: HostingApp) => void; onRefresh: () => void; onToast: (m: string) => void }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const filtered = useMemo(
@@ -329,7 +329,7 @@ function ApplicationsPage({ data, loading, pending, provider, onProviderChange, 
     ) : (
       <div className="empty-state glass-card"><AppWindow size={34} /><h3>Nenhuma aplicação encontrada</h3><p>Conecte um plugin de hospedagem ou altere os filtros.</p></div>
     )}
-    {selectedApp && <AppDetailsModal app={selectedApp} pending={pending[appKey(selectedApp)]} onAction={onAction} onLogs={() => onLogs(selectedApp)} onToast={onToast} onClose={() => setSelected("")} />}
+    {selectedApp && <AppDetailsModal app={selectedApp} pending={pending[appKey(selectedApp)]} onAction={onAction} onLogs={() => onLogs(selectedApp)} onWorkspace={() => onWorkspace(selectedApp)} onToast={onToast} onClose={() => setSelected("")} />}
   </div>;
 }
 
@@ -793,6 +793,81 @@ function SettingsPage({ theme, onThemeChange, config, setConfig, data, initialTa
   </div>;
 }
 
+type WorkspaceEntry = { name: string; path: string; type: "file" | "directory"; size?: number; modified?: string };
+type WorkspaceList = { cwd: string; entries: WorkspaceEntry[]; capabilities?: { read?: boolean; write?: boolean; upload?: boolean; deployZip?: boolean } };
+
+function WorkspaceModal({ app, onClose, onToast }: { app: HostingApp; onClose: () => void; onToast: (message: string) => void }) {
+  const [mounted, setMounted] = useState(false);
+  const [cwd, setCwd] = useState("");
+  const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
+  const [selectedPath, setSelectedPath] = useState("");
+  const [content, setContent] = useState("");
+  const [savedContent, setSavedContent] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [logs, setLogs] = useState("Carregue os logs quando precisar.");
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const uploadRef = useRef<HTMLInputElement | null>(null);
+  const base = `/api/workspace/${app.provider}/${encodeURIComponent(app.id)}`;
+  const dirty = Boolean(selectedPath) && content !== savedContent;
+
+  const list = useCallback(async (path = "") => {
+    setBusy(true);
+    try {
+      const response = await fetch(`${base}?action=list&path=${encodeURIComponent(path)}`, { cache: "no-store" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Falha ao listar arquivos.");
+      setCwd(json.cwd || path); setEntries(json.entries || []);
+    } catch (error) { onToast(error instanceof Error ? error.message : "Falha ao listar arquivos."); }
+    finally { setBusy(false); }
+  }, [base, onToast]);
+
+  useEffect(() => { setMounted(true); list(""); }, [base, list]);
+  async function openEntry(entry: WorkspaceEntry) {
+    if (entry.type === "directory") { setSelectedPath(""); setContent(""); setSavedContent(""); await list(entry.path); return; }
+    setBusy(true);
+    try {
+      const response = await fetch(`${base}?action=open&path=${encodeURIComponent(entry.path)}`, { cache: "no-store" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Falha ao abrir arquivo.");
+      setSelectedPath(entry.path); setContent(json.content || ""); setSavedContent(json.content || "");
+    } catch (error) { onToast(error instanceof Error ? error.message : "Falha ao abrir arquivo."); }
+    finally { setBusy(false); }
+  }
+  async function save() {
+    if (!selectedPath || !dirty) return;
+    setBusy(true);
+    try {
+      const response = await fetch(base, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: selectedPath, content }) });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Falha ao salvar.");
+      setSavedContent(content); onToast(`${selectedPath} salvo.`);
+    } catch (error) { onToast(error instanceof Error ? error.message : "Falha ao salvar."); }
+    finally { setBusy(false); }
+  }
+  async function loadLogs() {
+    try { const response = await fetch(`/api/apps/${app.provider}/${encodeURIComponent(app.id)}/logs`, { cache: "no-store" }); const json = await response.json(); if (!response.ok) throw new Error(json.error || "Falha ao carregar logs"); setLogs(json.logs || "Sem logs."); }
+    catch (error) { setLogs(error instanceof Error ? error.message : "Falha ao carregar logs."); }
+  }
+  function upload(file?: File) {
+    if (!file) return;
+    const xhr = new XMLHttpRequest(); const form = new FormData(); const deployZip = app.provider === "discloud";
+    form.set("action", deployZip ? "deploy" : "upload"); form.set("path", cwd); form.set("file", file); setUploadProgress(0);
+    xhr.open("POST", base);
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100)); };
+    xhr.onload = () => { let result: any = {}; try { result = JSON.parse(xhr.responseText || "{}"); } catch {} if (xhr.status >= 200 && xhr.status < 300) { setUploadProgress(100); onToast(deployZip ? "ZIP enviado para a Discloud. O deploy foi iniciado." : "Arquivo enviado para o Nextcloud."); window.setTimeout(() => { setUploadProgress(null); list(cwd); }, 700); } else { setUploadProgress(null); onToast(result.error || `Upload falhou (HTTP ${xhr.status}).`); } if (uploadRef.current) uploadRef.current.value = ""; };
+    xhr.onerror = () => { setUploadProgress(null); onToast("Falha de rede durante o upload."); }; xhr.send(form);
+  }
+  function upOneLevel() { const parts = cwd.split("/").filter(Boolean); parts.pop(); list(parts.join("/")); }
+  if (!mounted) return null;
+  return createPortal(<div className="modal-backdrop workspace-backdrop" onMouseDown={onClose}><section className="workspace-modal glass-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <header className="workspace-head"><div className="log-app"><AppArtwork app={app} /><div><ProviderBadge provider={app.provider} /><h2>{app.name} · Workspace</h2><small>{app.provider === "discloud" ? "Explorer remoto + editor + deploy ZIP" : "WebDAV + editor + upload"}</small></div></div><div className="modal-actions"><button className="btn glass" onClick={() => list(cwd)} disabled={busy}><RefreshCw className={busy ? "spin" : ""} size={14} />Atualizar</button><button className="close-btn" onClick={onClose}><X size={17} /></button></div></header>
+    <div className="workspace-body"><aside className="workspace-tree"><div className="workspace-path"><button onClick={() => list("")}>root</button>{cwd && <><ChevronRight size={12} /><span>{cwd}</span></>}</div>{cwd && <button className="workspace-entry directory up" onClick={upOneLevel}><FolderOpen size={15} /><span>..</span></button>}<div className="workspace-entry-list">{entries.map((entry) => <button key={entry.path} className={`workspace-entry ${entry.type} ${selectedPath === entry.path ? "active" : ""}`} onClick={() => openEntry(entry)}>{entry.type === "directory" ? <FolderOpen size={15} /> : <FileCode2 size={15} />}<span>{entry.name}</span>{entry.size ? <small>{Math.max(1, Math.round(entry.size / 1024))} KB</small> : null}</button>)}</div>{!entries.length && !busy && <div className="workspace-empty">Nenhum arquivo retornado nesta pasta.</div>}</aside>
+    <main className="workspace-editor"><div className="editor-tabbar"><span><FileCode2 size={14} />{selectedPath || "Selecione um arquivo"}</span>{dirty && <b>modificado</b>}<button className="btn primary mini" onClick={save} disabled={!dirty || busy}><Save size={13} />Salvar</button></div>{selectedPath ? <textarea className="code-editor" spellCheck={false} value={content} onChange={(event) => setContent(event.target.value)} /> : <div className="editor-empty"><FileCode2 size={34} /><h3>Editor do HostDeck</h3><p>Abra um arquivo na árvore à esquerda para editar o conteúdo sem sair do painel.</p></div>}</main>
+    <aside className="workspace-side"><section><header><Upload size={14} />Upload / Deploy</header><p>{app.provider === "discloud" ? "Envie um .ZIP para atualizar o código desta aplicação pela API de commit da Discloud." : "Envie arquivos diretamente para a pasta atual do Nextcloud."}</p><label className="btn primary workspace-upload">{app.provider === "discloud" ? "Selecionar ZIP" : "Selecionar arquivo"}<input ref={uploadRef} type="file" accept={app.provider === "discloud" ? ".zip,application/zip" : undefined} onChange={(event) => upload(event.target.files?.[0])} /></label>{uploadProgress !== null && <div className="upload-progress"><div><span style={{ width: `${uploadProgress}%` }} /></div><strong>{uploadProgress}%</strong></div>}</section><section className="workspace-logs"><header><SquareTerminal size={14} />Logs</header><button className="btn glass mini" onClick={loadLogs}>Carregar logs</button><pre>{logs}</pre></section></aside></div>
+    <footer className="workspace-footer"><span>{app.provider === "discloud" ? "Discloud Explorer API" : "Nextcloud WebDAV"}</span><span>{cwd ? `/${cwd}` : "/"}</span></footer>
+  </section></div>, document.body);
+}
+
 function LogsModal({ app, onClose }: { app: HostingApp; onClose: () => void }) {
   const [logs, setLogs] = useState("Carregando logs…");
   const [loading, setLoading] = useState(true);
@@ -808,7 +883,7 @@ function LogsModal({ app, onClose }: { app: HostingApp; onClose: () => void }) {
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState<AppsResponse>({ apps: [], providers: [], fetchedAt: 0 }); const [loading, setLoading] = useState(true); const [page, setPage] = useState<Page>("overview"); const [appsProvider, setAppsProvider] = useState<"all" | Provider>("all"); const [settingsTab, setSettingsTab] = useState<SettingsTab>("plugins"); const [theme, setTheme] = useState<ThemeChoice>("system"); const [desktop, setDesktop] = useState(false); const [config, setConfig] = useState<DesktopConfigStatus | null>(null); const [monitor, setMonitor] = useState<MonitorState | null>(null); const [unread, setUnread] = useState(0); const [flyout, setFlyout] = useState<Insight | null>(null); const [logsApp, setLogsApp] = useState<HostingApp | null>(null); const [pending, setPending] = useState<Record<string, PendingAction>>({}); const [toast, setToast] = useState(""); const flyoutTimer = useRef<number | null>(null);
+  const [data, setData] = useState<AppsResponse>({ apps: [], providers: [], fetchedAt: 0 }); const [loading, setLoading] = useState(true); const [page, setPage] = useState<Page>("overview"); const [appsProvider, setAppsProvider] = useState<"all" | Provider>("all"); const [settingsTab, setSettingsTab] = useState<SettingsTab>("plugins"); const [theme, setTheme] = useState<ThemeChoice>("system"); const [desktop, setDesktop] = useState(false); const [config, setConfig] = useState<DesktopConfigStatus | null>(null); const [monitor, setMonitor] = useState<MonitorState | null>(null); const [unread, setUnread] = useState(0); const [flyout, setFlyout] = useState<Insight | null>(null); const [logsApp, setLogsApp] = useState<HostingApp | null>(null); const [workspaceApp, setWorkspaceApp] = useState<HostingApp | null>(null); const [pending, setPending] = useState<Record<string, PendingAction>>({}); const [toast, setToast] = useState(""); const flyoutTimer = useRef<number | null>(null);
 
   useEffect(() => {
     setDesktop(Boolean(window.hostDeckDesktop));
@@ -880,5 +955,5 @@ export default function Dashboard() {
   const providerCounts = useMemo(() => new Map(HOSTING_PLUGINS.map((plugin) => [plugin.id, data.apps.filter((app) => app.provider === plugin.id).length])), [data.apps]);
   const connected = data.providers.filter((p) => p.configured);
 
-  return <div className={desktop ? "desktop-app" : "browser-app"}><WindowChrome /><main className="shell"><aside className="sidebar glass-sidebar"><div className="brand"><BrandMark size={40} /><div><strong>Host<span>Deck</span></strong><small>Infrastructure OS</small></div></div><div className="sidebar-label">Workspace</div><nav><NavButton active={page === "overview"} icon={<LayoutDashboard size={18} />} label="Visão geral" onClick={() => go("overview")} /><NavButton active={page === "apps" && appsProvider === "all"} icon={<AppWindow size={18} />} label="Aplicações" badge={data.apps.length} onClick={() => { setAppsProvider("all"); go("apps"); }} /><NavButton active={page === "ai"} icon={<Sparkles size={18} />} label="Inteligência" dangerBadge={unread} onClick={() => go("ai")} /></nav>{connected.length > 0 && <><div className="sidebar-label">Hospedagens</div><nav className="provider-nav">{connected.map((item) => <button key={item.provider} className={`nav-item provider-shortcut ${page === "apps" && appsProvider === item.provider ? "active" : ""}`} onClick={() => { setAppsProvider(item.provider); go("apps"); }}><span className={`nav-icon provider-${item.provider}`}><ProviderMark provider={item.provider} size={16} /></span><span>{PLUGIN_BY_ID.get(item.provider)?.shortName}</span><b>{providerCounts.get(item.provider) || 0}</b></button>)}</nav></>}<div className="sidebar-label">Sistema</div><nav><NavButton active={page === "settings"} icon={<Settings size={18} />} label="Configurações" onClick={() => openSettings("plugins")} /></nav><div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={15} /><span>Secrets protegidos no backend local</span></div><div className="local-badge"><span />LOCAL CONTROL PLANE</div></div></aside><section className="content"><header className="global-topbar"><div className="global-context"><span>{page === "overview" ? "Dashboard" : page === "apps" ? "Aplicações" : page === "ai" ? "Intelligence Inbox" : "Configurações"}</span><small>HostDeck Workspace</small></div><div className="global-actions"><ThemeControl value={theme} onChange={setTheme} /><UpdateButton /><button className="top-icon-btn" onClick={() => openSettings("plugins")} title="Configurações"><Settings size={16} /></button></div></header>{page === "overview" && <OverviewPage data={data} monitor={monitor} onOpenApps={() => go("apps")} onOpenAi={() => go("ai")} onOpenSettings={() => openSettings("plugins")} />}{page === "apps" && <ApplicationsPage data={data} loading={loading} pending={pending} provider={appsProvider} onProviderChange={setAppsProvider} onAction={runAction} onLogs={setLogsApp} onRefresh={() => loadApps()} onToast={setToast} />}{page === "ai" && <AiInboxPage data={data} monitor={monitor} onMonitorChange={setMonitor} config={config} onOpenSettings={() => openSettings("ai")} />}{page === "settings" && <SettingsPage key={settingsTab} theme={theme} onThemeChange={setTheme} config={config} setConfig={setConfig} data={data} initialTab={settingsTab} />}</section></main>{logsApp && <LogsModal app={logsApp} onClose={() => setLogsApp(null)} />}{flyout && <div role="button" tabIndex={0} className={`alert-flyout glass-card ${flyout.severity}`} onClick={() => { setFlyout(null); go("ai"); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setFlyout(null); go("ai"); } }}><span className="alert-flyout-icon"><BellRing size={17} /></span><div><small>Novo alerta · Intelligence</small><strong>{flyout.headline}</strong><p>{flyout.summary}</p><span>Abrir conversa <ChevronRight size={13} /></span></div><button className="flyout-close" onClick={(e) => { e.stopPropagation(); setFlyout(null); }}><X size={13} /></button></div>}{toast && <div className="toast glass-card">{toast}</div>}</div>;
+  return <div className={desktop ? "desktop-app" : "browser-app"}><WindowChrome /><main className="shell"><aside className="sidebar glass-sidebar"><div className="brand"><BrandMark size={40} /><div><strong>Host<span>Deck</span></strong><small>Infrastructure OS</small></div></div><div className="sidebar-label">Workspace</div><nav><NavButton active={page === "overview"} icon={<LayoutDashboard size={18} />} label="Visão geral" onClick={() => go("overview")} /><NavButton active={page === "apps" && appsProvider === "all"} icon={<AppWindow size={18} />} label="Aplicações" badge={data.apps.length} onClick={() => { setAppsProvider("all"); go("apps"); }} /><NavButton active={page === "ai"} icon={<Sparkles size={18} />} label="Inteligência" dangerBadge={unread} onClick={() => go("ai")} /></nav>{connected.length > 0 && <><div className="sidebar-label">Hospedagens</div><nav className="provider-nav">{connected.map((item) => <button key={item.provider} className={`nav-item provider-shortcut ${page === "apps" && appsProvider === item.provider ? "active" : ""}`} onClick={() => { setAppsProvider(item.provider); go("apps"); }}><span className={`nav-icon provider-${item.provider}`}><ProviderMark provider={item.provider} size={16} /></span><span>{PLUGIN_BY_ID.get(item.provider)?.shortName}</span><b>{providerCounts.get(item.provider) || 0}</b></button>)}</nav></>}<div className="sidebar-label">Sistema</div><nav><NavButton active={page === "settings"} icon={<Settings size={18} />} label="Configurações" onClick={() => openSettings("plugins")} /></nav><div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={15} /><span>Secrets protegidos no backend local</span></div><div className="local-badge"><span />LOCAL CONTROL PLANE</div></div></aside><section className="content"><header className="global-topbar"><div className="global-context"><span>{page === "overview" ? "Dashboard" : page === "apps" ? "Aplicações" : page === "ai" ? "Intelligence Inbox" : "Configurações"}</span><small>HostDeck Workspace</small></div><div className="global-actions"><ThemeControl value={theme} onChange={setTheme} /><UpdateButton /><button className="top-icon-btn" onClick={() => openSettings("plugins")} title="Configurações"><Settings size={16} /></button></div></header>{page === "overview" && <OverviewPage data={data} monitor={monitor} onOpenApps={() => go("apps")} onOpenAi={() => go("ai")} onOpenSettings={() => openSettings("plugins")} />}{page === "apps" && <ApplicationsPage data={data} loading={loading} pending={pending} provider={appsProvider} onProviderChange={setAppsProvider} onAction={runAction} onLogs={setLogsApp} onWorkspace={setWorkspaceApp} onRefresh={() => loadApps()} onToast={setToast} />}{page === "ai" && <AiInboxPage data={data} monitor={monitor} onMonitorChange={setMonitor} config={config} onOpenSettings={() => openSettings("ai")} />}{page === "settings" && <SettingsPage key={settingsTab} theme={theme} onThemeChange={setTheme} config={config} setConfig={setConfig} data={data} initialTab={settingsTab} />}</section></main>{logsApp && <LogsModal app={logsApp} onClose={() => setLogsApp(null)} />}{workspaceApp && <WorkspaceModal app={workspaceApp} onClose={() => setWorkspaceApp(null)} onToast={(message) => { setToast(message); window.setTimeout(() => setToast(""), 5000); }} />}{flyout && <div role="button" tabIndex={0} className={`alert-flyout glass-card ${flyout.severity}`} onClick={() => { setFlyout(null); go("ai"); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setFlyout(null); go("ai"); } }}><span className="alert-flyout-icon"><BellRing size={17} /></span><div><small>Novo alerta · Intelligence</small><strong>{flyout.headline}</strong><p>{flyout.summary}</p><span>Abrir conversa <ChevronRight size={13} /></span></div><button className="flyout-close" onClick={(e) => { e.stopPropagation(); setFlyout(null); }}><X size={13} /></button></div>}{toast && <div className="toast glass-card">{toast}</div>}</div>;
 }

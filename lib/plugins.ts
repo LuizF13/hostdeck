@@ -103,6 +103,37 @@ export const HOSTING_PLUGINS: HostingPluginDefinition[] = [
     fields: [{ key: "token", env: "HEROKU_API_KEY", label: "API Key", placeholder: "HEROKU_API_KEY", secret: true }],
     capabilities: ["Apps", "URL", "Stack", "Maintenance", "Região"],
   },
+  {
+    id: "discloud",
+    name: "Discloud",
+    shortName: "Discloud",
+    description: "Apps, status, logs, start/stop/restart, Explorer remoto e deploy por ZIP.",
+    category: "hosting",
+    docsUrl: "https://docs.discloud.com/api-and-integrations/api-overview/applications-endpoints",
+    portalUrl: "https://discloud.com/dashboard",
+    tokenGuide: ["Abra o dashboard da Discloud e copie seu API Token.", "O token é enviado apenas no header api-token.", "Conecte o plugin para listar apps e usar o Workspace/Explorer."],
+    color: "#5865f2",
+    fields: [{ key: "token", env: "DISCLOUD_API_TOKEN", label: "API Token", placeholder: "DISCLOUD_API_TOKEN", secret: true }],
+    capabilities: ["Apps", "Logs", "Start/Stop/Restart", "Explorer", "Editor", "Deploy ZIP"],
+  },
+  {
+    id: "nextcloud",
+    name: "Nextcloud Files",
+    shortName: "Nextcloud",
+    description: "Arquivos via WebDAV com explorer, editor e upload direto dentro do HostDeck.",
+    category: "hosting",
+    docsUrl: "https://docs.nextcloud.com/server/stable/developer_manual/client_apis/WebDAV/basic.html",
+    portalUrl: "https://nextcloud.com/",
+    tokenGuide: ["Informe a URL da sua instância Nextcloud.", "Use seu usuário e, de preferência, uma App Password criada em Segurança.", "Root Path é opcional e limita o Workspace a uma pasta específica."],
+    color: "#0082c9",
+    fields: [
+      { key: "serverUrl", env: "NEXTCLOUD_URL", label: "URL da instância", placeholder: "https://cloud.exemplo.com" },
+      { key: "username", env: "NEXTCLOUD_USERNAME", label: "Usuário", placeholder: "usuario" },
+      { key: "appPassword", env: "NEXTCLOUD_APP_PASSWORD", label: "App Password", placeholder: "senha de aplicativo", secret: true },
+      { key: "rootPath", env: "NEXTCLOUD_ROOT_PATH", label: "Pasta raiz", placeholder: "Projetos/HostDeck", optional: true, help: "Opcional. Deixe vazio para usar a raiz dos seus arquivos." },
+    ],
+    capabilities: ["WebDAV", "Explorer", "Editor", "Upload", "Pastas", "Arquivos"],
+  },
 ];
 
 export const PLUGIN_BY_ID = new Map<Provider, HostingPluginDefinition>(HOSTING_PLUGINS.map((plugin) => [plugin.id, plugin]));

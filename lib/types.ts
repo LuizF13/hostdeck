@@ -5,7 +5,9 @@ export type Provider =
   | "netlify"
   | "cloudflare"
   | "digitalocean"
-  | "heroku";
+  | "heroku"
+  | "discloud"
+  | "nextcloud";
 
 export type AppStatus = "online" | "offline" | "paused" | "building" | "unknown" | "error";
 

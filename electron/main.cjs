@@ -37,6 +37,8 @@ const PLUGIN_ENV_FIELDS = {
   cloudflare: { token: "CLOUDFLARE_API_TOKEN", accountId: "CLOUDFLARE_ACCOUNT_ID" },
   digitalocean: { token: "DIGITALOCEAN_TOKEN" },
   heroku: { token: "HEROKU_API_KEY" },
+  discloud: { token: "DISCLOUD_API_TOKEN" },
+  nextcloud: { serverUrl: "NEXTCLOUD_URL", username: "NEXTCLOUD_USERNAME", appPassword: "NEXTCLOUD_APP_PASSWORD", rootPath: "NEXTCLOUD_ROOT_PATH" },
 };
 const REQUIRED_PLUGIN_FIELDS = {
   square: ["SQUARECLOUD_API_KEY"],
@@ -46,6 +48,8 @@ const REQUIRED_PLUGIN_FIELDS = {
   cloudflare: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
   digitalocean: ["DIGITALOCEAN_TOKEN"],
   heroku: ["HEROKU_API_KEY"],
+  discloud: ["DISCLOUD_API_TOKEN"],
+  nextcloud: ["NEXTCLOUD_URL", "NEXTCLOUD_USERNAME", "NEXTCLOUD_APP_PASSWORD"],
 };
 let nextProcess = null;
 let mainWindow = null;
@@ -373,7 +377,7 @@ function configStatus() {
     const mapping = PLUGIN_ENV_FIELDS[id] || {};
     const publicValues = {};
     for (const [field, envName] of Object.entries(mapping)) {
-      if (!["apiKey", "token"].includes(field)) publicValues[field] = env[envName] || "";
+      if (!["apiKey", "token", "password", "appPassword"].includes(field)) publicValues[field] = env[envName] || "";
     }
     plugins[id] = { configured: required.every((key) => Boolean(env[key])), values: publicValues };
   }
@@ -413,6 +417,7 @@ function writeCredentialEnv(current) {
   const allowed = [
     "SQUARECLOUD_API_KEY", "VERCEL_TOKEN", "VERCEL_TEAM_ID", "RENDER_API_KEY", "NETLIFY_TOKEN",
     "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "DIGITALOCEAN_TOKEN", "HEROKU_API_KEY",
+    "DISCLOUD_API_TOKEN", "NEXTCLOUD_URL", "NEXTCLOUD_USERNAME", "NEXTCLOUD_APP_PASSWORD", "NEXTCLOUD_ROOT_PATH",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL", "DISCORD_WEBHOOK_URL",
   ];
   fs.mkdirSync(path.dirname(credentialFile()), { recursive: true });
@@ -432,7 +437,7 @@ function savePluginConfig(input = {}) {
     if (!Object.prototype.hasOwnProperty.call(values, field)) continue;
     const value = envLine(values[field]);
     if (value) current[envName] = value;
-    else if (!["apiKey", "token"].includes(field)) delete current[envName];
+    else if (!["apiKey", "token", "password", "appPassword"].includes(field)) delete current[envName];
   }
   if (input.remove === true) {
     for (const envName of Object.values(mapping)) delete current[envName];
