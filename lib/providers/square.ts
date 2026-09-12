@@ -72,6 +72,7 @@ export async function listSquareApps(): Promise<ProviderResult> {
         language: app.lang,
         cluster: app.cluster,
         createdAt: app.created_at,
+        metadata: { workspace: true, upload: true, deployZip: true },
         actions: running ? ["stop", "restart"] : ["start"],
       };
     });
@@ -128,6 +129,7 @@ export async function getSquareAppDetails(appId: string): Promise<Partial<Hostin
     storage: status.storage,
     network: status.network?.now || status.network?.total,
     uptime: status.uptime,
+    metadata: { workspace: true, upload: true, deployZip: true },
     actions: running ? ["stop", "restart"] : ["start"],
   };
 }
