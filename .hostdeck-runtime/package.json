@@ -1,6 +1,6 @@
 {
   "name": "hostdeck",
-  "version": "1.5.7",
+  "version": "1.5.8",
   "description": "HostDeck Infrastructure OS 1.5.2: atualizações automáticas em segundo plano, bandeja do Windows e sincronização de status/ações das aplicações.",
   "private": true,
   "main": "electron/main.cjs",
@@ -49,5 +49,10 @@
     "typescript": "^5.7.0"
   },
   "author": "HostDeck",
-  "productName": "HostDeck"
+  "productName": "HostDeck",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LuizF13/hostdeck.git"
+  },
+  "homepage": "https://github.com/LuizF13/hostdeck"
 }
