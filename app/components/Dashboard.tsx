@@ -8,7 +8,7 @@ import {
   Save, Sparkles, SquareTerminal, Sun, Trash2, Upload, Webhook, X, Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HOSTING_PLUGINS, PLUGIN_BY_ID } from "@/lib/plugins";
 import type { AppAction, HostingApp, HostingPluginDefinition, Provider } from "@/lib/types";
@@ -35,7 +35,7 @@ type Insight = {
 };
 type MonitorState = { enabled: boolean; intervalSeconds: number; running: boolean; lastCheckedAt?: string | null; lastInsight?: Insight | null; history?: Insight[] };
 type DesktopConfigStatus = Awaited<ReturnType<NonNullable<Window["hostDeckDesktop"]>["getConfigStatus"]>>;
-type UpdateState = Awaited<ReturnType<NonNullable<Window["hostDeckDesktop"]>["getUpdateStatus"]>> & { releaseNotes?: string[] };
+type UpdateState = Awaited<ReturnType<NonNullable<Window["hostDeckDesktop"]>["getUpdateStatus"]>> & { releaseNotes?: string[]; releaseVersion?: string; releaseUrl?: string; releasePublishedAt?: string };
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; createdAt: string };
 
 function useMediaUrl(kind: "app" | "banner") {
@@ -73,6 +73,110 @@ function formatUptime(ms?: number) {
 }
 function shortDomain(url?: string) { return url?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "Sem domínio"; }
 function randomId(prefix = "msg") { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
+
+const LANGUAGE_COLORS: Record<string, string> = {
+  javascript: "#f1e05a",
+  typescript: "#3178c6",
+  python: "#3572a5",
+  java: "#b07219",
+  kotlin: "#a97bff",
+  go: "#00add8",
+  rust: "#dea584",
+  php: "#4f5d95",
+  ruby: "#701516",
+  "c#": "#178600",
+  csharp: "#178600",
+  "c++": "#f34b7d",
+  cpp: "#f34b7d",
+  c: "#555555",
+  html: "#e34c26",
+  css: "#563d7c",
+  shell: "#89e051",
+  bash: "#89e051",
+  powershell: "#012456",
+  dart: "#00b4ab",
+  swift: "#f05138",
+  lua: "#000080",
+  elixir: "#6e4a7e",
+  vue: "#41b883",
+  svelte: "#ff3e00",
+  react: "#61dafb",
+  nextjs: "#ffffff",
+  next: "#ffffff",
+  nodejs: "#339933",
+  node: "#339933",
+  deno: "#70ffaf",
+  docker: "#2496ed",
+  dockerfile: "#384d54",
+  webdav: "#0082c9",
+  workers: "#f38020",
+  cloudflare: "#f38020",
+};
+
+function languageMeta(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  const aliases: Array<[RegExp, string, string]> = [
+    [/typescript|\bts\b/i, "TypeScript", "typescript"],
+    [/javascript|\bjs\b/i, "JavaScript", "javascript"],
+    [/python/i, "Python", "python"],
+    [/kotlin/i, "Kotlin", "kotlin"],
+    [/\bjava\b/i, "Java", "java"],
+    [/\bgolang\b|\bgo\b/i, "Go", "go"],
+    [/rust/i, "Rust", "rust"],
+    [/php/i, "PHP", "php"],
+    [/ruby/i, "Ruby", "ruby"],
+    [/c\+\+/i, "C++", "c++"],
+    [/c#|csharp/i, "C#", "c#"],
+    [/\bhtml\b/i, "HTML", "html"],
+    [/\bcss\b/i, "CSS", "css"],
+    [/powershell/i, "PowerShell", "powershell"],
+    [/bash|shell/i, "Shell", "shell"],
+    [/dart/i, "Dart", "dart"],
+    [/swift/i, "Swift", "swift"],
+    [/lua/i, "Lua", "lua"],
+    [/elixir/i, "Elixir", "elixir"],
+    [/vue/i, "Vue", "vue"],
+    [/svelte/i, "Svelte", "svelte"],
+    [/react/i, "React", "react"],
+    [/next(?:\.js|js)?/i, "Next.js", "nextjs"],
+    [/node(?:\.js|js)?/i, "Node.js", "nodejs"],
+    [/deno/i, "Deno", "deno"],
+    [/docker/i, "Docker", "docker"],
+    [/webdav/i, "WebDAV", "webdav"],
+    [/cloudflare workers|workers/i, "Cloudflare Workers", "workers"],
+  ];
+  const match = aliases.find(([pattern]) => pattern.test(raw));
+  const key = match?.[2] || normalized.split(/[\s·:/()-]+/).filter(Boolean)[0] || normalized;
+  const label = match?.[1] || raw;
+  const fallbackHue = [...key].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) % 360, 210);
+  return { label, raw, color: LANGUAGE_COLORS[key] || `hsl(${fallbackHue} 72% 58%)` };
+}
+
+function LanguageBadge({ value }: { value?: string }) {
+  const meta = languageMeta(value);
+  if (!meta) return <span className="language-empty">—</span>;
+  return <span className="language-badge" style={{ "--language-color": meta.color } as CSSProperties} title={meta.raw}><span />{meta.label}</span>;
+}
+
+function classifyReleaseNote(note: string) {
+  const clean = note
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^[-*+]\s*/, "")
+    .replace(/^\d+[.)]\s*/, "")
+    .replace(/^>\s*/, "")
+    .replace(/\[(.*?)\]\([^)]*\)/g, "$1")
+    .replace(/\*\*/g, "")
+    .trim();
+  const lower = clean.toLowerCase();
+  if (!clean || /^full changelog/i.test(clean) || /^what'?s changed/i.test(clean) || /^changelog$/i.test(clean)) return null;
+  if (/seguran|security|vulnerab|token|credential|🔒/.test(lower)) return { kind: "security", label: "Segurança", text: clean };
+  if (/corrig|correç|fix|bug|erro|falha|🐛/.test(lower)) return { kind: "fix", label: "Correção", text: clean };
+  if (/novo|adicion|plugin|provider|integraç|discloud|nextcloud|square|cloudflare|feat|✨|🚀/.test(lower)) return { kind: "new", label: "Novo", text: clean };
+  if (/melhor|ajust|performance|interface|layout|chat|editor|workspace|discord|update|refactor|⚡/.test(lower)) return { kind: "improve", label: "Melhoria", text: clean };
+  return { kind: "other", label: "Atualização", text: clean };
+}
 
 function BrandMark({ size = 34 }: { size?: number }) {
   return <img className="hostdeck-mark" src="/brand/hostdeck-mark.svg" alt="" width={size} height={size} />;
@@ -175,18 +279,23 @@ function UpdateDetailsPanel() {
     const off = desktop.onUpdateStatus((value) => active && setState(value));
     return () => { active = false; off(); };
   }, [desktop]);
-  const notes = (state.releaseNotes || []).flatMap((note) => String(note).split(/\r?\n/)).map((item) => item.trim()).filter(Boolean).slice(0, 10);
+  const notes = (state.releaseNotes || [])
+    .flatMap((note) => String(note).split(/\r?\n/))
+    .map(classifyReleaseNote)
+    .filter(Boolean)
+    .slice(0, 12) as Array<{ kind: string; label: string; text: string }>;
+  const shownVersion = state.availableVersion || state.releaseVersion || state.currentVersion;
   return <div className="update-release-notes">
     <div className="update-release-head">
       <div>
-        <strong>{state.availableVersion ? `Versão ${state.availableVersion}` : `Versão atual ${state.currentVersion || "—"}`}</strong>
+        <strong>{state.availableVersion ? `Versão ${state.availableVersion}` : `Versão ${shownVersion || "—"}`}</strong>
         <p>{state.message || "As mudanças da versão aparecerão aqui."}</p>
       </div>
       <span className={`update-state-pill ${state.state}`}>{state.state === "available" ? "Disponível" : state.state === "downloaded" ? "Pronta" : state.state === "downloading" ? "Baixando" : state.state === "checking" ? "Verificando" : state.state === "up-to-date" ? "Atualizado" : state.state === "error" ? "Erro" : "Local"}</span>
     </div>
     <div className="release-notes-card">
       <small>O que foi adicionado nesta versão</small>
-      {notes.length ? <ul>{notes.map((note, index) => <li key={`${index}-${note.slice(0, 24)}`}>{note.replace(/^[-*]\s*/, "")}</li>)}</ul> : <p>Publique a release no GitHub com descrição/changelog para aparecer aqui, por exemplo novas empresas, plugins e melhorias adicionadas no app.</p>}
+      {notes.length ? <div className="release-note-list">{notes.map((note, index) => <div className="release-note-item" key={`${index}-${note.text.slice(0, 24)}`}><span className={`release-note-kind ${note.kind}`}>{note.label}</span><p>{note.text}</p></div>)}</div> : <p>As novidades desta versão aparecerão automaticamente aqui quando a release pública do GitHub tiver um changelog.</p>}
     </div>
   </div>;
 }
@@ -224,7 +333,7 @@ function CompactAppCard({ app, selected, onClick }: { app: HostingApp; selected:
   return <article role="button" tabIndex={0} className={`compact-app-card glass-card ${selected ? "selected" : ""}`} onClick={onClick} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(); } }}>
     <div className="compact-card-top"><AppArtwork app={app} /><StatusPill status={app.status} /></div>
     <div className="compact-card-body"><ProviderBadge provider={app.provider} /><h3>{app.name}</h3><p>{app.description || `Aplicação vinculada pela integração ${providerName(app.provider)}.`}</p></div>
-    <div className="compact-card-footer"><span>{shortDomain(app.url)}</span><ChevronRight size={15} /></div>
+    <div className="compact-card-footer"><span className="compact-domain">{shortDomain(app.url)}</span><div className="compact-meta">{app.language && <LanguageBadge value={app.language} />}<ChevronRight size={15} /></div></div>
   </article>;
 }
 
@@ -264,7 +373,7 @@ function AppExpanded({ app, pending, onAction, onLogs, onWorkspace, onToast }: {
     {pending && <div className="operation-banner"><Loader2 className="spin" size={16} /><div><strong>{BUSY_LABEL[pending.action]}</strong><span>Os controles serão liberados depois que o provedor confirmar o estado.</span></div></div>}
     <div className="expanded-toolbar"><div className="action-group"><button className="btn glass" onClick={onLogs}><SquareTerminal size={15} />Logs</button>{Boolean(view.metadata?.workspace) && <button className="btn glass workspace-launch" onClick={onWorkspace}><FileCode2 size={15} />Workspace</button>}{view.url && <a className="btn glass" href={view.url} target="_blank" rel="noreferrer"><ExternalLink size={15} />Abrir</a>}</div><ActionButtons app={view} pending={pending} onAction={onAction} /></div>
     <div className="expanded-grid"><div className="metric-tile"><span>Status</span><strong>{statusLabel(view.status)}</strong><small>{providerName(view.provider)}</small></div><div className="metric-tile"><span>CPU</span><strong>{view.cpu || "—"}</strong><small>uso atual</small></div><div className="metric-tile"><span>Memória</span><strong>{view.ram || "—"}</strong><small>uso atual</small></div><div className="metric-tile"><span>Uptime</span><strong>{formatUptime(view.uptime)}</strong><small>{loading ? "consultando…" : "tempo online"}</small></div></div>
-    <div className="expanded-sections"><section><header><Globe2 size={15} />Endereço</header>{view.url ? <div className="property-row"><span className="truncate">{view.url}</span><button onClick={() => copy(view.url)}><Copy size={13} /></button></div> : <div className="empty-property">Nenhum domínio público informado.</div>}<div className="property-row"><span>Provider</span><strong>{providerName(view.provider)}</strong></div><div className="property-row"><span>Região/cluster</span><strong>{view.region || view.cluster || "—"}</strong></div></section><section><header><MonitorCog size={15} />Deploy & runtime</header><div className="property-row"><span>Stack</span><strong>{view.language || "—"}</strong></div><div className="property-row"><span>Deployment</span><strong>{view.latestDeploymentState || "—"}</strong></div><div className="property-row"><span>Atualizado</span><strong>{formatDate(view.updatedAt)}</strong></div></section><section><header><Info size={15} />Identificação</header><div className="property-row"><span className="truncate">{view.id}</span><button onClick={() => copy(view.id)}><Copy size={13} /></button></div><div className="property-row"><span>Storage</span><strong>{view.storage || "—"}</strong></div><div className="property-row"><span>Rede</span><strong>{view.network || "—"}</strong></div></section></div>
+    <div className="expanded-sections"><section><header><Globe2 size={15} />Endereço</header>{view.url ? <div className="property-row"><span className="truncate">{view.url}</span><button onClick={() => copy(view.url)}><Copy size={13} /></button></div> : <div className="empty-property">Nenhum domínio público informado.</div>}<div className="property-row"><span>Provider</span><strong>{providerName(view.provider)}</strong></div><div className="property-row"><span>Região/cluster</span><strong>{view.region || view.cluster || "—"}</strong></div></section><section><header><MonitorCog size={15} />Deploy & runtime</header><div className="property-row"><span>Stack</span><LanguageBadge value={view.language} /></div><div className="property-row"><span>Deployment</span><strong>{view.latestDeploymentState || "—"}</strong></div><div className="property-row"><span>Atualizado</span><strong>{formatDate(view.updatedAt)}</strong></div></section><section><header><Info size={15} />Identificação</header><div className="property-row"><span className="truncate">{view.id}</span><button onClick={() => copy(view.id)}><Copy size={13} /></button></div><div className="property-row"><span>Storage</span><strong>{view.storage || "—"}</strong></div><div className="property-row"><span>Rede</span><strong>{view.network || "—"}</strong></div></section></div>
   </section>;
 }
 

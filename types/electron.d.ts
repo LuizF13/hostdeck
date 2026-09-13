@@ -9,6 +9,9 @@ type HostDeckUpdateState = {
   percent?: number;
   message?: string;
   releaseNotes?: string[];
+  releaseVersion?: string;
+  releaseUrl?: string;
+  releasePublishedAt?: string;
 };
 
 type HostDeckInsight = {

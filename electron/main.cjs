@@ -10,6 +10,7 @@ const PROD_APP_ID = "com.hostdeck.desktop";
 const DEV_APP_ID = "com.hostdeck.desktop.dev";
 const APP_NAME = "HostDeck";
 const APP_ID = app.isPackaged ? PROD_APP_ID : DEV_APP_ID;
+const HOSTDECK_RELEASE_REPOSITORY = String(process.env.HOSTDECK_GITHUB_REPOSITORY || "LuizF13/hostdeck").trim();
 
 try { app.setName(APP_NAME); } catch {}
 try { process.title = APP_NAME; } catch {}
@@ -156,6 +157,9 @@ let updateState = {
     ? "A configuração do canal de atualização será verificada ao abrir o aplicativo."
     : "Atualizações via GitHub Releases ficam disponíveis no aplicativo empacotado.",
   releaseNotes: [],
+  releaseVersion: undefined,
+  releaseUrl: undefined,
+  releasePublishedAt: undefined,
 };
 
 function appIconPath() {
@@ -645,6 +649,41 @@ function sendUpdateState(patch) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("updates:status", updateState);
 }
 
+function githubReleaseBodyLines(body) {
+  return String(body || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
+async function hydrateLatestReleaseNotes() {
+  if (!HOSTDECK_RELEASE_REPOSITORY || !HOSTDECK_RELEASE_REPOSITORY.includes("/")) return;
+  try {
+    const response = await fetch(`https://api.github.com/repos/${HOSTDECK_RELEASE_REPOSITORY}/releases/latest`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": `HostDeck/${app.getVersion()}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      cache: "no-store",
+    });
+    if (!response.ok) return;
+    const release = await response.json();
+    const notes = githubReleaseBodyLines(release?.body);
+    if (!notes.length) return;
+    if (["available", "downloading", "downloaded"].includes(updateState.state)) return;
+    sendUpdateState({
+      releaseNotes: notes,
+      releaseVersion: String(release?.tag_name || "").replace(/^v/i, "") || app.getVersion(),
+      releaseUrl: release?.html_url || undefined,
+      releasePublishedAt: release?.published_at || undefined,
+    });
+  } catch (error) {
+    logMessage("INFO", "Não foi possível carregar o changelog público do GitHub", error instanceof Error ? error.message : String(error));
+  }
+}
+
 function friendlyUpdaterError(error) {
   const raw = error?.message || String(error || "Falha ao verificar atualização.");
   if (/404|releases\.atom|github\.com/i.test(raw)) {
@@ -720,7 +759,7 @@ function configureUpdater() {
       setTimeout(() => autoUpdater.downloadUpdate().catch((error) => sendUpdateState({ state: "error", message: friendlyUpdaterError(error) })), 500);
     }
   });
-  autoUpdater.on("update-not-available", () => sendUpdateState({ state: "up-to-date", availableVersion: undefined, percent: undefined, message: "Você já está usando a versão mais recente." }));
+  autoUpdater.on("update-not-available", () => { sendUpdateState({ state: "up-to-date", availableVersion: undefined, percent: undefined, message: "Você já está usando a versão mais recente." }); hydrateLatestReleaseNotes().catch(() => {}); });
   autoUpdater.on("download-progress", (progress) => sendUpdateState({ state: "downloading", percent: progress.percent, message: `Baixando atualização: ${Math.round(progress.percent)}%` }));
   autoUpdater.on("update-downloaded", (info) => {
     const releaseNotes = Array.isArray(info.releaseNotes)
@@ -733,6 +772,8 @@ function configureUpdater() {
     showDesktopNotification(`HostDeck ${info.version} pronto para instalar`, "A atualização foi baixada. Clique para abrir o HostDeck e instalar agora, ou ela será aplicada ao encerrar o aplicativo.", revealMainWindow);
   });
   autoUpdater.on("error", (error) => sendUpdateState({ state: "error", message: friendlyUpdaterError(error) }));
+
+  hydrateLatestReleaseNotes().catch(() => {});
 
   if (app.isPackaged && !updaterConfigured()) {
     sendUpdateState({
